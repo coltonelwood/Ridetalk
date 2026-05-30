@@ -43,6 +43,8 @@
 	<string>RideTalk shares your live location with your ride group while a ride is active, including when the screen is locked.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>RideTalk uses motion data during a ride for possible crash / rider-down detection. This is a best-effort safety aid, not guaranteed emergency detection.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>RideTalk uses Apple Music to play the track your group is listening to, in your own app and account. It never records or rebroadcasts audio.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>CFBundleURLTypes</key>
@@ -55,6 +57,11 @@
 				<string>ridetalk</string>
 			</array>
 		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>spotify</string>
+		<string>music</string>
 	</array>
 </dict>
 </plist>

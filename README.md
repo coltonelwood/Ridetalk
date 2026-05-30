@@ -151,6 +151,7 @@ Examples are in `*.example` files; real secrets are gitignored.
 - [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product spec
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design
 - [`docs/MUSIC_COMPLIANCE.md`](docs/MUSIC_COMPLIANCE.md) — why we don't rebroadcast audio
+- [`docs/MUSIC_SYNC.md`](docs/MUSIC_SYNC.md) — Apple Music / Spotify sync architecture + setup + limits
 - [`docs/CRASH_DETECTION.md`](docs/CRASH_DETECTION.md) — possible rider-down detection + how to test it
 - [`docs/LIVEKIT_SETUP.md`](docs/LIVEKIT_SETUP.md) — voice setup notes
 - [`docs/MVP_CHECKLIST.md`](docs/MVP_CHECKLIST.md) — what's done / placeholders

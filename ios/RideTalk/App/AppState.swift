@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 import CoreLocation
 
 /// App-wide coordinator: owns the auth session, the active room, and the long-lived
@@ -25,9 +26,12 @@ final class AppState: ObservableObject {
     let location = LocationService()
     let audio = AudioSessionManager.shared
     let music = MusicLinkService()
+    let musicSync = MusicSyncService()
     let sos = SOSService()
     let recording = RideRecordingService()
     let crash = CrashDetectionService()
+
+    private var cancellables: Set<AnyCancellable> = []
 
     init() {
         // Feed location updates into the ride recorder AND the crash detector.
@@ -37,6 +41,12 @@ final class AppState: ObservableObject {
         }
         // A possible rider-down → present the countdown screen.
         crash.onTrigger = { [weak self] reason in self?.presentRiderDown(reason: reason) }
+
+        // Feed host-controlled shared music state into the local sync engine.
+        supabase.$music
+            .receive(on: RunLoop.main)
+            .sink { [weak self] link in self?.musicSync.updateSharedState(link) }
+            .store(in: &cancellables)
     }
 
     // MARK: - Lifecycle
@@ -98,6 +108,7 @@ final class AppState: ObservableObject {
     func leaveActiveRoom() async {
         guard let room = activeRoom else { return }
         crash.stop()
+        musicSync.disableSync()
         riderDownEvent = nil
         lastSavedStats = await recording.stopAndSave()                // save the ride
         location.stop()

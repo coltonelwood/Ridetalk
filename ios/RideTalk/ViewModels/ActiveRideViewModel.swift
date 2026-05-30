@@ -32,7 +32,8 @@ final class ActiveRideViewModel: ObservableObject {
         for obj: ObservableObjectPublisher in [
             app.voice.objectWillChange, app.supabase.objectWillChange,
             app.location.objectWillChange, app.audio.objectWillChange,
-            app.recording.objectWillChange, ptt.objectWillChange
+            app.recording.objectWillChange, app.musicSync.objectWillChange,
+            ptt.objectWillChange
         ] {
             obj.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         }
@@ -108,14 +109,44 @@ final class ActiveRideViewModel: ObservableObject {
         .sorted { $0.miles > $1.miles }
     }
 
-    // MARK: - Music
+    // MARK: - Music (compliant sync — see MusicSyncService / docs/MUSIC_SYNC.md)
 
     var music: SharedMusicLink? { app.supabase.music }
+
+    /// Host shares a link (starts paused at 0).
     func shareMusic(url: String, title: String?) async {
         guard let me = meId, URL(string: url)?.scheme != nil else { return }
         do { try await app.music.share(roomId: room.id, userId: me, url: url, title: title) }
         catch { app.report(error) }
     }
+
+    // Host playback controls (write shared state; followers project from it).
+    var canControlMusic: Bool { isHost && (music?.provider.supportsSyncedPlayback ?? false) }
+
+    func hostPlay() async {
+        guard isHost, let m = music else { return }
+        do { try await app.music.setPlayback(linkId: m.id, isPlaying: true, positionMs: m.projectedPositionMs) }
+        catch { app.report(error) }
+    }
+    func hostPause() async {
+        guard isHost, let m = music else { return }
+        do { try await app.music.setPlayback(linkId: m.id, isPlaying: false, positionMs: m.projectedPositionMs) }
+        catch { app.report(error) }
+    }
+    func hostRestart() async {
+        guard isHost, let m = music else { return }
+        do { try await app.music.setPlayback(linkId: m.id, isPlaying: true, positionMs: 0) }
+        catch { app.report(error) }
+    }
+
+    // Rider sync (opt-in following of the host).
+    var syncStatus: MusicSyncStatus { app.musicSync.status }
+    var isSyncEnabled: Bool { app.musicSync.isSyncEnabled }
+    func toggleMusicSync() async {
+        if app.musicSync.isSyncEnabled { app.musicSync.disableSync() }
+        else { await app.musicSync.enableSync() }
+    }
+    func resyncMusic() async { await app.musicSync.resyncNow() }
 
     // MARK: - SOS
 

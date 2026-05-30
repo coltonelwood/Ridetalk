@@ -29,7 +29,12 @@ Legend: ✅ implemented · 🟡 scaffolded/placeholder (clearly marked in-app) �
 ## Music
 - ✅ Share Spotify / Apple Music / YouTube Music **link**
 - ✅ Each rider opens their own copy (compliant — no rebroadcast)
-- 🟡 Full music sync (play/pause/timestamp) — placeholder UI + DB fields; needs MusicKit / Spotify App Remote
+- ✅ **Host-controlled sync state** (track link + play/pause/position via `shared_music_links`)
+- ✅ **Apple Music sync** via MusicKit `SystemMusicPlayer` (own subscription; ducks under voice)
+- ✅ **Spotify sync** via App Remote — isolated behind `#if canImport(SpotifyiOS)`; falls back to "Open in Spotify" when the SDK isn't linked
+- ✅ Rider opt-in sync + "Re-sync to host" drift correction
+- ✅ Fallbacks: no app installed / no subscription / unsupported provider (YouTube Music) → open link
+- ✅ All music code isolated in `MusicLinkService` / `MusicSyncService`; see [`MUSIC_SYNC.md`](MUSIC_SYNC.md)
 
 ## Riding UI
 - ✅ Huge buttons, dark UI, big PTT / mute / SOS

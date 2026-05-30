@@ -49,6 +49,7 @@ targets:
         NSLocationWhenInUseUsageDescription: "RideTalk shares your live location with riders in your current ride room so the group can stay together."
         NSLocationAlwaysAndWhenInUseUsageDescription: "RideTalk shares your live location with your ride group while a ride is active, including when the screen is locked."
         NSMotionUsageDescription: "RideTalk uses motion data during a ride for possible crash / rider-down detection. This is a best-effort safety aid, not guaranteed emergency detection."
+        NSAppleMusicUsageDescription: "RideTalk uses Apple Music to play the track your group is listening to, in your own app and account. It never records or rebroadcasts audio."
         NSCameraUsageDescription: "RideTalk uses the camera to set your rider profile photo."
         NSPhotoLibraryUsageDescription: "RideTalk uses your photo library to set your rider profile photo."
         ITSAppUsesNonExemptEncryption: false
@@ -60,6 +61,11 @@ targets:
           - CFBundleURLName: com.ridetalk.deeplink
             CFBundleURLSchemes:
               - ridetalk
+        # Lets the app detect whether Spotify / Music are installed (fallback UI) and
+        # open them via their URL schemes.
+        LSApplicationQueriesSchemes:
+          - spotify
+          - music
     entitlements:
       path: RideTalk/Resources/RideTalk.entitlements
       properties:
