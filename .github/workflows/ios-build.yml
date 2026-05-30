@@ -23,6 +23,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write          # PR conversation comments use the Issues API
   pull-requests: write
 
 env:
