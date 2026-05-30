@@ -10,11 +10,12 @@ final class SOSService: ObservableObject {
 
     private var client: SupabaseClient { SupabaseManager.shared.client }
 
-    func raise(roomId: UUID, userId: UUID, coordinate: CLLocationCoordinate2D?, message: String? = nil) async throws {
+    func raise(roomId: UUID, userId: UUID, coordinate: CLLocationCoordinate2D?,
+               message: String? = nil, kind: AlertKind = .manual) async throws {
         let insert = SOSInsert(
             roomId: roomId, userId: userId,
             lat: coordinate?.latitude, lng: coordinate?.longitude,
-            message: message
+            message: message, alertKind: kind
         )
         _ = try await client.from("sos_alerts").insert(insert).execute()
     }

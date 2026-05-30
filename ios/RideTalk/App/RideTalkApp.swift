@@ -48,6 +48,12 @@ struct RootView: View {
                   message: Text(msg.text),
                   dismissButton: .default(Text("OK")))
         }
+        // Possible crash / rider-down countdown — presented at the root so it can appear
+        // over any screen (including the settings "Simulate" demo).
+        .fullScreenCover(item: $appState.riderDownEvent) { event in
+            RiderDownCountdownView(event: event)
+                .environmentObject(appState)
+        }
     }
 }
 

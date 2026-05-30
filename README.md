@@ -23,7 +23,8 @@ included.
 | **SOS** | One-tap help · shares GPS · priority full-screen alert to the group · fastest-route directions |
 | **Ride leader mode** | Host assigns a lead rider · everyone sees distance-from-lead |
 | **Recording & stats** | Auto-records the ride · distance, duration, avg/max speed · ride summary + history |
-| **Safety alerts** | Low battery · lost signal / reconnecting · stopped-unexpectedly · crash-detection placeholder |
+| **Safety alerts** | Low battery · lost signal / reconnecting · stopped-unexpectedly |
+| **Possible crash detection** | Accelerometer + sudden-stop + no-movement → 30s "Are you OK?" countdown (loud alarm + haptics) → auto-SOS to the group labeled "possible crash". Enable/disable + low/med/high sensitivity. [Details »](docs/CRASH_DETECTION.md) |
 | **Quick messages** | One-tap "Stopping / Need gas / Slow down / I'm behind / All good" (priority for *Slow down*) |
 
 Clearly-marked **placeholders** for: full music sync, crash/rider-down detection, subgroups
@@ -150,6 +151,7 @@ Examples are in `*.example` files; real secrets are gitignored.
 - [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product spec
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design
 - [`docs/MUSIC_COMPLIANCE.md`](docs/MUSIC_COMPLIANCE.md) — why we don't rebroadcast audio
+- [`docs/CRASH_DETECTION.md`](docs/CRASH_DETECTION.md) — possible rider-down detection + how to test it
 - [`docs/LIVEKIT_SETUP.md`](docs/LIVEKIT_SETUP.md) — voice setup notes
 - [`docs/MVP_CHECKLIST.md`](docs/MVP_CHECKLIST.md) — what's done / placeholders
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — MVP → production

@@ -25,9 +25,16 @@ struct SOSView: View {
             Color.rideDanger.ignoresSafeArea()
             VStack(spacing: 18) {
                 Spacer().frame(height: 8)
-                Image(systemName: "sos").font(.system(size: 64, weight: .black))
-                Text("\(name) needs help").font(.system(size: 30, weight: .heavy, design: .rounded))
-                if let msg = alert.message, !msg.isEmpty { Text(msg).font(.headline).opacity(0.9) }
+                Image(systemName: alert.isPossibleCrash ? "figure.fall" : "sos")
+                    .font(.system(size: 64, weight: .black))
+                Text(alert.isPossibleCrash ? "Possible crash" : "\(name) needs help")
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                if alert.isPossibleCrash {
+                    Text("\(name) may be down — auto-detected, unconfirmed")
+                        .font(.headline).opacity(0.9).multilineTextAlignment(.center)
+                } else if let msg = alert.message, !msg.isEmpty {
+                    Text(msg).font(.headline).opacity(0.9)
+                }
 
                 if let coord = alert.coordinate {
                     Map(coordinateRegion: $region, annotationItems: [alert]) { a in

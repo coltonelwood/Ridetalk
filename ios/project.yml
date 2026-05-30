@@ -48,6 +48,7 @@ targets:
         NSMicrophoneUsageDescription: "RideTalk uses your microphone for hands-free group voice chat while you ride."
         NSLocationWhenInUseUsageDescription: "RideTalk shares your live location with riders in your current ride room so the group can stay together."
         NSLocationAlwaysAndWhenInUseUsageDescription: "RideTalk shares your live location with your ride group while a ride is active, including when the screen is locked."
+        NSMotionUsageDescription: "RideTalk uses motion data during a ride for possible crash / rider-down detection. This is a best-effort safety aid, not guaranteed emergency detection."
         NSCameraUsageDescription: "RideTalk uses the camera to set your rider profile photo."
         NSPhotoLibraryUsageDescription: "RideTalk uses your photo library to set your rider profile photo."
         ITSAppUsesNonExemptEncryption: false

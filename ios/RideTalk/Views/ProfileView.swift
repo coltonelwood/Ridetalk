@@ -32,6 +32,11 @@ struct ProfileView: View {
                     TextField("Model (e.g. Apollo City Pro)", text: $vehicleName)
                 }
 
+                CrashSettingsSection(crash: appState.crash) {
+                    appState.simulateRiderDown()
+                    dismiss()   // close settings so the countdown (root cover) is visible
+                }
+
                 Section {
                     TextField("Name & phone", text: $emergencyContact)
                 } header: {
@@ -65,7 +70,52 @@ struct ProfileView: View {
         }
     }
 
+}
+
+/// Rider-down detection settings (enable, sensitivity, test). Observes the service so the
+/// sensitivity row shows/hides reactively.
+struct CrashSettingsSection: View {
+    @ObservedObject var crash: CrashDetectionService
+    let onSimulate: () -> Void
+
+    var body: some View {
+        Section {
+            Toggle("Possible crash detection", isOn: $crash.isEnabled)
+
+            if crash.isEnabled {
+                Picker("Sensitivity", selection: $crash.sensitivity) {
+                    ForEach(CrashSensitivity.allCases) { Text($0.label).tag($0) }
+                }
+                Text(crash.sensitivity.explanation)
+                    .font(.caption).foregroundStyle(.secondary)
+
+                if !crash.isMotionAvailable {
+                    Label("No accelerometer here — detection uses speed only (full impact detection runs on a real device).",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                onSimulate()
+            } label: {
+                Label("Simulate rider-down (test)", systemImage: "testtube.2")
+            }
+        } header: {
+            Text("Rider-down detection")
+        } footer: {
+            Text("Best-effort **possible** crash detection — NOT guaranteed emergency detection. If you don't cancel the countdown, an SOS is sent to your ride group (never to emergency services). Detection runs only during an active ride.")
+                .font(.caption2)
+        }
+    }
+
     private func save() {
+        guard let id = UUID?.none else { return } // unused; satisfies original structure
+    }
+}
+
+private extension ProfileView {
+    func save() {
         guard let id = appState.profile?.id else { return }
         isSaving = true
         Task {

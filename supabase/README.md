@@ -21,7 +21,8 @@ supabase db push           # applies migrations/*.sql in order
 Files:
 1. `migrations/0001_init.sql` — tables, enums, triggers, realtime publication.
 2. `migrations/0002_rls.sql` — Row Level Security policies.
-3. `migrations/0003_functions.sql` — `create_room` / `join_room` / `leave_room` / `end_room` RPCs.
+3. `migrations/0003_functions.sql` — `create_room` / `join_room` / `leave_room` / `end_room` / lead-rider / threshold RPCs.
+4. `migrations/0004_crash_detection.sql` — adds `sos_alerts.alert_kind` (manual vs possible_crash).
 
 ## 3. Configure Sign in with Apple
 In **Authentication → Providers → Apple**:

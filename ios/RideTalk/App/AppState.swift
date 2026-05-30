@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CoreLocation
 
 /// App-wide coordinator: owns the auth session, the active room, and the long-lived
 /// services. Views observe this via `@EnvironmentObject`.
@@ -14,6 +15,7 @@ final class AppState: ObservableObject {
     @Published var errorMessage: ErrorMessage?
     @Published var lastSavedStats: RideStats?      // drives the ride-summary screen
     @Published var pendingJoinCode: String?
+    @Published var riderDownEvent: RiderDownEvent? // drives the crash-countdown screen
 
     // Long-lived services
     let supabase = SupabaseManager.shared
@@ -25,10 +27,16 @@ final class AppState: ObservableObject {
     let music = MusicLinkService()
     let sos = SOSService()
     let recording = RideRecordingService()
+    let crash = CrashDetectionService()
 
     init() {
-        // Feed location updates into the ride recorder.
-        location.onLocation = { [weak self] loc in self?.recording.ingest(loc) }
+        // Feed location updates into the ride recorder AND the crash detector.
+        location.onLocation = { [weak self] loc in
+            self?.recording.ingest(loc)
+            self?.crash.ingest(loc)
+        }
+        // A possible rider-down → present the countdown screen.
+        crash.onTrigger = { [weak self] reason in self?.presentRiderDown(reason: reason) }
     }
 
     // MARK: - Lifecycle
@@ -82,12 +90,15 @@ final class AppState: ObservableObject {
         try await voice.connect(url: token.url, token: token.token, identity: token.identity)
         location.start(roomId: room.id, userId: profile.id)            // background updates on
         recording.start(roomId: room.id, userId: profile.id)          // auto-record the ride
+        crash.start()                                                  // possible rider-down detection
         await supabase.subscribe(to: room)                            // roster/location/music/sos/msgs
         activeRoom = room
     }
 
     func leaveActiveRoom() async {
         guard let room = activeRoom else { return }
+        crash.stop()
+        riderDownEvent = nil
         lastSavedStats = await recording.stopAndSave()                // save the ride
         location.stop()
         await voice.disconnect()
@@ -107,6 +118,43 @@ final class AppState: ObservableObject {
         try await supabase.client.functions.invoke(
             "livekit-token", options: .init(body: ["roomId": roomId.uuidString])
         )
+    }
+
+    // MARK: - Possible crash / rider-down
+
+    /// Show the countdown. Demo when there's no active ride (e.g. the settings test button).
+    private func presentRiderDown(reason: String) {
+        guard riderDownEvent == nil else { return }   // one at a time
+        riderDownEvent = RiderDownEvent(
+            reason: reason,
+            isDemo: activeRoom == nil,
+            coordinate: location.currentCoordinate()
+        )
+    }
+
+    /// Test trigger used by the settings "Simulate" button and the in-ride debug button.
+    func simulateRiderDown() { crash.simulate() }
+
+    /// Rider tapped "I'm OK" (or the countdown was dismissed) — no SOS sent.
+    func cancelRiderDown() {
+        riderDownEvent = nil
+        crash.rearm()
+    }
+
+    /// Countdown elapsed or rider chose "Send now" — fire a *possible crash* SOS to the room.
+    func confirmRiderDown() async {
+        let event = riderDownEvent
+        riderDownEvent = nil
+        crash.rearm()
+        guard let room = activeRoom, let me = profile?.id, event?.isDemo == false else { return }
+        do {
+            try await sos.raise(
+                roomId: room.id, userId: me,
+                coordinate: location.currentCoordinate(),
+                message: "Possible crash / rider down — auto-detected, UNCONFIRMED.",
+                kind: .possibleCrash
+            )
+        } catch { report(error) }
     }
 
     // MARK: - Deep links  (ridetalk://join/<CODE>)

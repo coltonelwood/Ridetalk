@@ -51,6 +51,25 @@ struct ActiveRideView: View {
             .padding()
 
             if let toast = vm.toast { ToastView(text: toast).padding(.top, 8) }
+
+            #if DEBUG
+            // Debug-only: simulate a rider-down during a real ride (fires the actual SOS path).
+            VStack {
+                Spacer()
+                HStack {
+                    Button {
+                        appState.simulateRiderDown()
+                    } label: {
+                        Label("Simulate rider-down", systemImage: "testtube.2")
+                            .font(.caption2.bold()).padding(8)
+                            .background(.black.opacity(0.5), in: Capsule())
+                    }
+                    .foregroundStyle(.white)
+                    Spacer()
+                }
+                .padding(.leading, 8).padding(.bottom, 2)
+            }
+            #endif
         }
         // Sheets
         .sheet(isPresented: $vm.showRoster) { RosterView(vm: vm) }

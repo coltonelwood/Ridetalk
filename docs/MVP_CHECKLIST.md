@@ -64,7 +64,10 @@ Legend: ✅ implemented · 🟡 scaffolded/placeholder (clearly marked in-app) �
 - ✅ Low phone battery warning
 - ✅ Lost signal / reconnecting warning
 - ✅ Stopped-unexpectedly warning (no-movement heuristic)
-- 🟡 Crash/rider-down detection (sudden stop + impact + "Are you okay?") — placeholder hook
+- ✅ **Possible crash / rider-down detection** — accelerometer (CoreMotion) + sudden-stop +
+  no-movement → 30s "Are you OK?" countdown (loud alarm + haptics) → auto-SOS labeled
+  "possible crash" with GPS; enable/disable + low/med/high sensitivity; demo/test triggers.
+  See [`CRASH_DETECTION.md`](CRASH_DETECTION.md).
 
 ## Communication extras
 - ✅ Quick text alerts (Stopping / Gas / Slow down / Behind / All good)

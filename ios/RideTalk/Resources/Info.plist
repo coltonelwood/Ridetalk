@@ -41,6 +41,8 @@
 	<string>RideTalk shares your live location with riders in your current ride room so the group can stay together.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>RideTalk shares your live location with your ride group while a ride is active, including when the screen is locked.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>RideTalk uses motion data during a ride for possible crash / rider-down detection. This is a best-effort safety aid, not guaranteed emergency detection.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>CFBundleURLTypes</key>

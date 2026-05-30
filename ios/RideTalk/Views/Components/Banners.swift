@@ -9,10 +9,15 @@ struct SOSBanner: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "sos").font(.title3.bold())
+            Image(systemName: alert.isPossibleCrash ? "figure.fall" : "sos").font(.title3.bold())
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(name) needs help").font(.headline)
-                if alert.coordinate != nil { Text("Location shared").font(.caption).opacity(0.9) }
+                Text(alert.isPossibleCrash ? "Possible crash — \(name) may be down" : "\(name) needs help")
+                    .font(.headline)
+                if alert.isPossibleCrash {
+                    Text("Auto-detected · unconfirmed").font(.caption).opacity(0.9)
+                } else if alert.coordinate != nil {
+                    Text("Location shared").font(.caption).opacity(0.9)
+                }
             }
             Spacer()
             if let c = alert.coordinate,
