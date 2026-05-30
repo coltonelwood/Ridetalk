@@ -1,38 +1,55 @@
 name: iOS Build
 
 # Compiles the SwiftUI app on a macOS runner so build / SDK breakages surface on the PR.
-# We can't sign in CI (no team), so signing is disabled and we build for a generic
-# simulator destination (no booted device needed).
+# We can't sign in CI (no team), so signing is disabled and we build (no install/run) for a
+# generic simulator destination.
+#
+# Notes:
+#  • No `paths:` filter — empty commits (used to re-trigger CI) change no files, so a paths
+#    filter would silently skip them. We want every push/PR to this branch to build.
+#  • Homebrew auto-update is disabled (it can hang for minutes / fail flakily).
+#  • Per-step `timeout-minutes` bound package resolution and xcodebuild; the job has an
+#    overall cap so nothing can sit for an hour again.
 
 on:
   pull_request:
-    paths:
-      - 'ios/**'
-      - '.github/workflows/ios-build.yml'
   push:
     branches:
       - 'claude/**'
       - 'main'
-    paths:
-      - 'ios/**'
-      - '.github/workflows/ios-build.yml'
+  workflow_dispatch: {}
 
 concurrency:
   group: ios-build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
 jobs:
   build:
     name: Build (Xcode)
     runs-on: macos-14
+    timeout-minutes: 40          # overall job timeout
     steps:
       - uses: actions/checkout@v4
 
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Environment info
+        run: |
+          set -euxo pipefail
+          sw_vers
+          xcodebuild -version
+          which xcodegen || echo "xcodegen not yet installed"
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        timeout-minutes: 10
+        run: |
+          set -euxo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
 
       - name: Create Secrets.xcconfig (placeholder)
         working-directory: ios
@@ -40,19 +57,26 @@ jobs:
 
       - name: Generate Xcode project
         working-directory: ios
-        run: xcodegen generate
+        timeout-minutes: 5
+        run: |
+          set -euxo pipefail
+          xcodegen generate
+          ls -la
 
       - name: Resolve Swift packages
         working-directory: ios
+        timeout-minutes: 15        # package resolution timeout (LiveKit is large)
         run: |
+          set -euxo pipefail
           xcodebuild -resolvePackageDependencies \
             -project RideTalk.xcodeproj \
             -scheme RideTalk
 
       - name: Build
         working-directory: ios
+        timeout-minutes: 25        # xcodebuild timeout
         run: |
-          set -o pipefail
+          set -euxo pipefail
           xcodebuild build \
             -project RideTalk.xcodeproj \
             -scheme RideTalk \
@@ -62,4 +86,12 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            | tee build.log
+            2>&1 | tee build.log
+
+      - name: Upload build log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ios/build.log
+          if-no-files-found: ignore
