@@ -95,27 +95,16 @@ jobs:
               tail,
               '```'
             ].join('\n');
-            // Resolve the PR number for both pull_request and push events.
-            let prNumber = context.issue.number;
-            if (!prNumber) {
-              const branch = context.ref.replace('refs/heads/', '');
-              const prs = await github.rest.pulls.list({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'open',
-                head: `${context.repo.owner}:${branch}`
-              });
-              if (prs.data.length) prNumber = prs.data[0].number;
-            }
-            if (prNumber) {
+            try {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: prNumber,
+                issue_number: 1,
                 body
               });
-            } else {
-              core.setFailed('Could not resolve a PR to comment on');
+              core.info('diagnostic comment posted');
+            } catch (e) {
+              core.setFailed('createComment failed (token likely read-only): ' + e.message);
             }
 
       - name: Upload ci.log artifact
