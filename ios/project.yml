@@ -1,0 +1,76 @@
+# XcodeGen project definition for RideTalk.
+# Generate the Xcode project with:  xcodegen generate
+#
+# Why XcodeGen: a hand-maintained .pbxproj is noisy and merge-hostile. This YAML is the
+# source of truth; the .xcodeproj is generated and gitignored.
+
+name: RideTalk
+options:
+  bundleIdPrefix: com.ridetalk
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: "" # ← set your Apple Team ID here, or pick the team in Xcode
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Pull secrets from Secrets.xcconfig (gitignored). See Secrets.example.xcconfig.
+
+configFiles:
+  Debug: RideTalk/App/Secrets.xcconfig
+  Release: RideTalk/App/Secrets.xcconfig
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    minVersion: "2.0.0"
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    minVersion: "2.0.0"
+
+targets:
+  RideTalk:
+    type: application
+    platform: iOS
+    sources:
+      - path: RideTalk
+    info:
+      path: RideTalk/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: RideTalk
+        UILaunchScreen: {}
+        UIBackgroundModes:
+          - audio
+          - location
+        NSMicrophoneUsageDescription: "RideTalk uses your microphone for hands-free group voice chat while you ride."
+        NSLocationWhenInUseUsageDescription: "RideTalk shares your live location with riders in your current ride room so the group can stay together."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "RideTalk shares your live location with your ride group while a ride is active, including when the screen is locked."
+        NSCameraUsageDescription: "RideTalk uses the camera to set your rider profile photo."
+        NSPhotoLibraryUsageDescription: "RideTalk uses your photo library to set your rider profile photo."
+        ITSAppUsesNonExemptEncryption: false
+        # App config surfaced from Secrets.xcconfig → read at runtime by AppConfig.swift
+        SupabaseURLHost: $(SUPABASE_URL_HOST)
+        SupabaseAnonKey: $(SUPABASE_ANON_KEY)
+        LiveKitURLHost: $(LIVEKIT_URL_HOST)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.ridetalk.deeplink
+            CFBundleURLSchemes:
+              - ridetalk
+    entitlements:
+      path: RideTalk/Resources/RideTalk.entitlements
+      properties:
+        com.apple.developer.applesignin:
+          - Default
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ridetalk.app
+        TARGETED_DEVICE_FAMILY: "1" # iPhone
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+    dependencies:
+      - package: Supabase
+        product: Supabase
+      - package: LiveKit
+        product: LiveKit
