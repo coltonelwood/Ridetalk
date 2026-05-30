@@ -1,0 +1,65 @@
+name: iOS Build
+
+# Compiles the SwiftUI app on a macOS runner so build / SDK breakages surface on the PR.
+# We can't sign in CI (no team), so signing is disabled and we build for a generic
+# simulator destination (no booted device needed).
+
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  push:
+    branches:
+      - 'claude/**'
+      - 'main'
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (Xcode)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Create Secrets.xcconfig (placeholder)
+        working-directory: ios
+        run: cp RideTalk/App/Secrets.example.xcconfig RideTalk/App/Secrets.xcconfig
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Resolve Swift packages
+        working-directory: ios
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project RideTalk.xcodeproj \
+            -scheme RideTalk
+
+      - name: Build
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project RideTalk.xcodeproj \
+            -scheme RideTalk \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            | tee build.log
