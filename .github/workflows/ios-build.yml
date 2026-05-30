@@ -1,16 +1,13 @@
 name: iOS Build
 
-# Split into stage-named jobs so a failure's STAGE is identifiable from the check name
-# alone (we can't read raw logs from here). Each job is self-contained (checkout + install
-# + generate) and chained with `needs:`, so the first failing job pinpoints the stage:
-#   • "1 · Generate project"  → workflow/setup or xcodegen
-#   • "2 · Resolve packages"  → dependency/package versions
-#   • "3 · Build"             → Swift compile errors
+# One job that tees every stage to ci.log with "::STAGE::" markers, then on failure posts
+# the log tail as a PR comment. Raw Actions logs aren't reachable from the dev environment,
+# so this surfaces the exact failing command + error text into a place that IS readable.
 #
-# Notes:
-#  • No `paths:` filter — empty re-trigger commits change no files and would be skipped.
-#  • Homebrew auto-update disabled (can hang/flake).
-#  • Per-job timeouts so nothing can sit for an hour.
+# Stage markers in the posted log identify which command failed:
+#   ::STAGE:: versions / generate / resolve / build
+#
+# Once CI is green this diagnostic comment step can be removed.
 
 on:
   pull_request:
@@ -24,98 +21,90 @@ concurrency:
   group: ios-build-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 env:
   HOMEBREW_NO_AUTO_UPDATE: "1"
   HOMEBREW_NO_INSTALL_CLEANUP: "1"
 
 jobs:
-  generate:
-    name: "1 · Generate project"
-    runs-on: macos-14
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Environment info
-        run: |
-          set -euxo pipefail
-          sw_vers
-          xcodebuild -version
-          command -v xcodegen && xcodegen --version || echo "xcodegen not preinstalled"
-      - name: Install XcodeGen (if needed)
-        run: |
-          set -euxo pipefail
-          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
-          xcodegen --version
-      - name: Create Secrets.xcconfig (placeholder)
-        working-directory: ios
-        run: cp RideTalk/App/Secrets.example.xcconfig RideTalk/App/Secrets.xcconfig
-      - name: Generate Xcode project
-        working-directory: ios
-        run: |
-          set -euxo pipefail
-          xcodegen generate
-          test -d RideTalk.xcodeproj && echo "project generated OK"
-
-  resolve:
-    name: "2 · Resolve packages"
-    needs: generate
-    runs-on: macos-14
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install XcodeGen (if needed)
-        run: |
-          set -euxo pipefail
-          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
-      - name: Create Secrets.xcconfig (placeholder)
-        working-directory: ios
-        run: cp RideTalk/App/Secrets.example.xcconfig RideTalk/App/Secrets.xcconfig
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
-      - name: Resolve Swift packages
-        working-directory: ios
-        run: |
-          set -euxo pipefail
-          xcodebuild -resolvePackageDependencies \
-            -project RideTalk.xcodeproj \
-            -scheme RideTalk
-
   build:
-    name: "3 · Build"
-    needs: resolve
+    name: Build (Xcode)
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+
+      - name: Versions
+        run: |
+          echo "::STAGE:: versions" | tee -a ci.log
+          { sw_vers; xcodebuild -version; echo "xcodegen: $(command -v xcodegen || echo MISSING)"; xcodegen --version || true; } 2>&1 | tee -a ci.log
+
       - name: Install XcodeGen (if needed)
         run: |
-          set -euxo pipefail
-          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          echo "::STAGE:: install-xcodegen" | tee -a ci.log
+          { command -v xcodegen >/dev/null 2>&1 || brew install xcodegen; xcodegen --version; } 2>&1 | tee -a ci.log
+
       - name: Create Secrets.xcconfig (placeholder)
-        working-directory: ios
-        run: cp RideTalk/App/Secrets.example.xcconfig RideTalk/App/Secrets.xcconfig
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
-      - name: Build
-        working-directory: ios
         run: |
-          set -euxo pipefail
-          xcodebuild build \
-            -project RideTalk.xcodeproj \
-            -scheme RideTalk \
-            -destination 'generic/platform=iOS Simulator' \
-            -configuration Debug \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            2>&1 | tee build.log
-      - name: Upload build log
+          echo "::STAGE:: secrets" | tee -a ci.log
+          cp ios/RideTalk/App/Secrets.example.xcconfig ios/RideTalk/App/Secrets.xcconfig 2>&1 | tee -a ci.log
+          echo "secrets copied" | tee -a ci.log
+
+      - name: Generate Xcode project
+        run: |
+          echo "::STAGE:: generate" | tee -a ci.log
+          ( cd ios && set -o pipefail && xcodegen generate ) 2>&1 | tee -a ci.log
+
+      - name: Resolve Swift packages
+        timeout-minutes: 15
+        run: |
+          echo "::STAGE:: resolve" | tee -a ci.log
+          ( cd ios && set -o pipefail && xcodebuild -resolvePackageDependencies \
+              -project RideTalk.xcodeproj -scheme RideTalk ) 2>&1 | tee -a ci.log
+
+      - name: Build
+        timeout-minutes: 25
+        run: |
+          echo "::STAGE:: build" | tee -a ci.log
+          ( cd ios && set -o pipefail && xcodebuild build \
+              -project RideTalk.xcodeproj \
+              -scheme RideTalk \
+              -destination 'generic/platform=iOS Simulator' \
+              -configuration Debug \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" ) 2>&1 | tee -a ci.log
+
+      - name: Surface failing log as PR comment
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let tail = '(no ci.log captured)';
+            try {
+              const log = fs.readFileSync('ci.log', 'utf8');
+              tail = log.length > 8000 ? log.slice(-8000) : log;
+            } catch (e) {}
+            const body = [
+              '🔴 **CI diagnostic** — `ios-build` failed. Tail of `ci.log` (stage markers are `::STAGE::`):',
+              '```',
+              tail,
+              '```'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+      - name: Upload ci.log artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: ios/build.log
+          name: ci-log
+          path: ci.log
           if-no-files-found: ignore
