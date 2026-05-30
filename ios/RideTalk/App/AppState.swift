@@ -31,7 +31,10 @@ final class AppState: ObservableObject {
     let recording = RideRecordingService()
     let crash = CrashDetectionService()
 
+    let env = AppEnvironment.shared
     private var cancellables: Set<AnyCancellable> = []
+
+    var isDemo: Bool { env.isDemoMode }
 
     init() {
         // Feed location updates into the ride recorder AND the crash detector.
@@ -52,6 +55,15 @@ final class AppState: ObservableObject {
     // MARK: - Lifecycle
 
     func bootstrap() async {
+        // Demo Mode: skip auth/network entirely and sign in with the sample profile.
+        if env.isDemoMode {
+            profile = DemoData.profile
+            phase = .signedIn
+            return
+        }
+        // No backend configured → land on the sign-in screen, which offers Demo Mode and
+        // a clear "setup required" note instead of crashing.
+        guard env.backendConfigured else { phase = .signedOut; return }
         do {
             if let session = try await auth.restoreSession() {
                 profile = try await auth.fetchProfile(userId: session.userId)
@@ -61,6 +73,21 @@ final class AppState: ObservableObject {
         } catch { phase = .signedOut; report(error) }
     }
 
+    /// Enter Demo Mode from the sign-in screen.
+    func startDemo() {
+        env.enableDemo()
+        profile = DemoData.profile
+        phase = .signedIn
+    }
+
+    /// Leave Demo Mode (also signs out).
+    func exitDemo() {
+        env.disableDemo()
+        activeRoom = nil
+        profile = nil
+        phase = .signedOut
+    }
+
     func signedIn(profile: RiderProfile) async {
         self.profile = profile
         phase = .signedIn
@@ -68,6 +95,7 @@ final class AppState: ObservableObject {
     }
 
     func signOut() async {
+        if env.isDemoMode { exitDemo(); return }
         await leaveActiveRoom()
         try? await auth.signOut()
         profile = nil
@@ -78,6 +106,7 @@ final class AppState: ObservableObject {
 
     func createRoom(name: String, thresholdMiles: Double) async {
         guard let profile else { return }
+        if env.isDemoMode { enterDemoRide(); return }
         do {
             let room = try await rooms.create(name: name, thresholdMiles: thresholdMiles)
             try await enter(room: room, as: profile)
@@ -85,12 +114,13 @@ final class AppState: ObservableObject {
     }
 
     func joinRoom(code: String) async {
-        guard let profile else { return }
+        guard profile != nil else { return }
+        if env.isDemoMode { enterDemoRide(); return }
         let cleaned = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !cleaned.isEmpty else { return }
         do {
             let room = try await rooms.join(code: cleaned)
-            try await enter(room: room, as: profile)
+            try await enter(room: room, as: profile!)
         } catch { report(error) }
     }
 
@@ -105,23 +135,37 @@ final class AppState: ObservableObject {
         activeRoom = room
     }
 
+    /// Demo Mode "enter ride": seed local sample state, no network/voice. Crash detection
+    /// still starts so the simulate flow works; location starts for the speed readout.
+    private func enterDemoRide() {
+        supabase.loadDemoState()
+        crash.start()
+        location.start(roomId: DemoData.roomId, userId: DemoData.meId)
+        activeRoom = DemoData.room
+    }
+
     func leaveActiveRoom() async {
         guard let room = activeRoom else { return }
         crash.stop()
         musicSync.disableSync()
         riderDownEvent = nil
-        lastSavedStats = await recording.stopAndSave()                // save the ride
         location.stop()
+        audio.deactivate()
+        if env.isDemoMode {
+            supabase.clearDemoState()
+            activeRoom = nil
+            return
+        }
+        lastSavedStats = await recording.stopAndSave()                // save the ride
         await voice.disconnect()
         await supabase.unsubscribe()
-        audio.deactivate()
         try? await rooms.leave(roomId: room.id)
         activeRoom = nil
     }
 
     func endActiveRoom() async {
         guard let room = activeRoom else { return }
-        try? await rooms.end(roomId: room.id)
+        if !env.isDemoMode { try? await rooms.end(roomId: room.id) }
         await leaveActiveRoom()
     }
 
@@ -157,6 +201,11 @@ final class AppState: ObservableObject {
         let event = riderDownEvent
         riderDownEvent = nil
         crash.rearm()
+        // In Demo Mode, surface the alert locally instead of hitting the network.
+        if env.isDemoMode, event?.isDemo == false {
+            supabase.addDemoSOS(kind: .possibleCrash)
+            return
+        }
         guard let room = activeRoom, let me = profile?.id, event?.isDemo == false else { return }
         do {
             try await sos.raise(

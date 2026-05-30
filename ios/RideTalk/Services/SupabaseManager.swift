@@ -100,9 +100,45 @@ final class SupabaseManager: ObservableObject {
         isRealtimeConnected = false
     }
 
+    // MARK: - Demo Mode (local sample state, no network)
+
+    /// Populate the published room state from `DemoData` so every screen renders.
+    func loadDemoState() {
+        room = DemoData.room
+        roster = DemoData.roster
+        locations = DemoData.locations
+        music = DemoData.music
+        quickMessages = DemoData.quickMessages
+        activeSOS = []
+        isRealtimeConnected = true
+    }
+
+    func clearDemoState() {
+        room = nil; roster = []; locations = [:]; music = nil
+        activeSOS = []; quickMessages = []; isRealtimeConnected = false
+    }
+
+    /// Append a local SOS (used by the demo crash flow) so the banner/full-screen alert show.
+    func addDemoSOS(kind: AlertKind) {
+        let me = DemoData.meId
+        let loc = locations[me]
+        let alert = SOSAlert(id: UUID(), roomId: DemoData.roomId, userId: me,
+                             lat: loc?.lat, lng: loc?.lng,
+                             message: kind == .possibleCrash
+                                ? "Possible crash / rider down — auto-detected, UNCONFIRMED."
+                                : nil,
+                             status: .active, kind: kind, createdAt: Date(), resolvedAt: nil)
+        activeSOS = [alert] + activeSOS
+    }
+
+    func resolveDemoSOS(_ id: UUID) {
+        activeSOS.removeAll { $0.id == id }
+    }
+
     // MARK: - Broadcast (instant fan-out)
 
     func broadcastLocation(_ loc: LiveLocation) async {
+        guard channel != nil else { return }   // no-op in demo / when not subscribed
         try? await channel?.broadcast(event: "location", message: encodeJSON(loc))
     }
 

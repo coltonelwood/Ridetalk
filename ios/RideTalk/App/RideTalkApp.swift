@@ -23,18 +23,23 @@ struct RootView: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        Group {
-            switch appState.phase {
-            case .loading:
-                LoadingView()
-            case .signedOut:
-                SignInView()
-            case .signedIn:
-                if appState.activeRoom != nil {
-                    ActiveRideView(app: appState)
-                        .transition(.move(edge: .bottom))
-                } else {
-                    HomeView()
+        VStack(spacing: 0) {
+            if appState.isDemo && appState.phase == .signedIn {
+                DemoBanner()
+            }
+            Group {
+                switch appState.phase {
+                case .loading:
+                    LoadingView()
+                case .signedOut:
+                    SignInView()
+                case .signedIn:
+                    if appState.activeRoom != nil {
+                        ActiveRideView(app: appState)
+                            .transition(.move(edge: .bottom))
+                    } else {
+                        HomeView()
+                    }
                 }
             }
         }
@@ -54,6 +59,23 @@ struct RootView: View {
             RiderDownCountdownView(event: event)
                 .environmentObject(appState)
         }
+    }
+}
+
+/// Thin banner shown across the top while in Demo Mode.
+struct DemoBanner: View {
+    @EnvironmentObject private var appState: AppState
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "play.rectangle.on.rectangle.fill")
+            Text(appState.env.demoBanner).font(.caption.bold())
+            Spacer()
+            Button("Exit") { appState.exitDemo() }
+                .font(.caption.bold())
+        }
+        .padding(.horizontal, 14).padding(.vertical, 6)
+        .background(Color.rideAccent)
+        .foregroundStyle(.black)
     }
 }
 

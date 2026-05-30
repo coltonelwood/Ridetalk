@@ -123,6 +123,7 @@ struct HomeView: View {
     }
 
     private func loadSaved() async {
+        if appState.isDemo { savedRooms = [DemoData.room]; return }
         savedRooms = (try? await appState.rooms.savedRooms()) ?? []
     }
 
