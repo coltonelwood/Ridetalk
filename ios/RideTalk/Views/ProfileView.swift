@@ -108,10 +108,6 @@ struct CrashSettingsSection: View {
                 .font(.caption2)
         }
     }
-
-    private func save() {
-        guard let id = UUID?.none else { return } // unused; satisfies original structure
-    }
 }
 
 private extension ProfileView {
