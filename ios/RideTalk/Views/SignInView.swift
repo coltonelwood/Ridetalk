@@ -59,7 +59,7 @@ struct SignInView: View {
             Task {
                 do {
                     let session = try await appState.auth.handleAuthorization(authorization)
-                    let profile = try await appState.supabase.fetchProfile(userId: session.userId)
+                    let profile = try await appState.auth.fetchProfile(userId: session.userId)
                     await appState.signedIn(profile: profile)
                 } catch {
                     appState.report(error)

@@ -8,7 +8,7 @@ import Combine
 ///     automatically using the audio session's metering.
 ///
 /// VOX in the MVP is intentionally simple: it taps input metering and toggles the
-/// VoiceService mic when sustained energy crosses a threshold, with a short hangover so
+/// VoiceChatService mic when sustained energy crosses a threshold, with a short hangover so
 /// speech isn't clipped between words. Tune in Phase 1 (wind/road noise).
 @MainActor
 final class PushToTalkController: ObservableObject {
@@ -22,7 +22,7 @@ final class PushToTalkController: ObservableObject {
     @Published var mode: Mode = .pushToTalk
     @Published private(set) var isPressed = false
 
-    private unowned let voice: VoiceService
+    private unowned let voice: VoiceChatService
     private var voxTimer: Timer?
     private var hangoverUntil: Date = .distantPast
 
@@ -30,7 +30,7 @@ final class PushToTalkController: ObservableObject {
     private let voxThresholdDB: Float = -35   // open above this
     private let hangover: TimeInterval = 0.6  // keep open this long after speech dips
 
-    init(voice: VoiceService) {
+    init(voice: VoiceChatService) {
         self.voice = voice
     }
 

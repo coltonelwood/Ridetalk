@@ -2,23 +2,19 @@ import Foundation
 import LiveKit
 import Combine
 
-/// Group voice over LiveKit (WebRTC/Opus). Implements push-to-talk by toggling the local
-/// mic *publish* on/off rather than tearing down the connection — fast, battery-friendly,
-/// privacy-preserving (no hot mic).
+/// Group voice over LiveKit (WebRTC/Opus). Push-to-talk is implemented by toggling the
+/// local mic *publish*, not by reconnecting — fast, battery-friendly, no hot mic.
 ///
-/// NOTE: LiveKit delegate method signatures evolve across SDK versions; if a callback
-/// doesn't fire after `xcodegen generate`, check the installed SDK version's `RoomDelegate`.
+/// NOTE: LiveKit `RoomDelegate` signatures evolve across SDK versions; if a callback stops
+/// firing after a version bump, check the installed SDK's `RoomDelegate`.
 @MainActor
-final class VoiceService: NSObject, ObservableObject {
+final class VoiceChatService: NSObject, ObservableObject {
 
     enum State: Equatable { case disconnected, connecting, connected, reconnecting }
 
     @Published private(set) var state: State = .disconnected
-    /// Whether we're currently transmitting (mic published).
     @Published private(set) var isTransmitting = false
-    /// Identities (Supabase user IDs) of participants currently speaking.
     @Published private(set) var speakingIdentities: Set<String> = []
-    /// True when any *remote* participant is speaking (used to show "incoming" + ducking).
     @Published private(set) var remoteIsSpeaking = false
 
     let room = Room()
@@ -34,22 +30,12 @@ final class VoiceService: NSObject, ObservableObject {
     func connect(url: String, token: String, identity: String) async throws {
         localIdentity = identity
         state = .connecting
-
-        // Defaults are well-suited to voice. We deliberately start with the mic OFF and
-        // enable it only while transmitting (push-to-talk / VOX).
-        let roomOptions = RoomOptions(
-            adaptiveStream: false,
-            dynacast: false
-        )
-
         try await room.connect(
-            url: url,
-            token: token,
+            url: url, token: token,
             connectOptions: ConnectOptions(),
-            roomOptions: roomOptions
+            roomOptions: RoomOptions(adaptiveStream: false, dynacast: false)
         )
-
-        // Ensure we start muted (push-to-talk). Mic enabled only while the button is held.
+        // Start muted — push-to-talk enables the mic only while talking.
         try? await room.localParticipant.setMicrophone(enabled: false)
         isTransmitting = false
         state = .connected
@@ -63,35 +49,30 @@ final class VoiceService: NSObject, ObservableObject {
         remoteIsSpeaking = false
     }
 
-    // MARK: - Push-to-talk / VOX
+    // MARK: - Transmit (PTT / VOX)
 
-    /// Start transmitting (hold-to-talk down, or VOX gate opens).
     func startTransmitting() async {
         guard state == .connected || state == .reconnecting else { return }
-        do {
-            try await room.localParticipant.setMicrophone(enabled: true)
-            isTransmitting = true
-        } catch {
-            isTransmitting = false
-        }
+        do { try await room.localParticipant.setMicrophone(enabled: true); isTransmitting = true }
+        catch { isTransmitting = false }
     }
 
-    /// Stop transmitting (release PTT, or VOX gate closes).
     func stopTransmitting() async {
         try? await room.localParticipant.setMicrophone(enabled: false)
         isTransmitting = false
     }
 
-    /// Convenience used by the big PTT button.
     func setTransmitting(_ on: Bool) {
         Task { on ? await startTransmitting() : await stopTransmitting() }
     }
+
+    /// Local mute (separate from host-enforced mute): fully stop publishing.
+    func setSelfMuted(_ muted: Bool) {
+        Task { try? await room.localParticipant.setMicrophone(enabled: !muted && isTransmitting) }
+    }
 }
 
-// MARK: - RoomDelegate
-
-extension VoiceService: RoomDelegate {
-
+extension VoiceChatService: RoomDelegate {
     nonisolated func room(_ room: Room,
                           didUpdateConnectionState connectionState: ConnectionState,
                           from oldConnectionState: ConnectionState) {

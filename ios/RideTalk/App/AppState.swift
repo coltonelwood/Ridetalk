@@ -9,65 +9,61 @@ final class AppState: ObservableObject {
     enum Phase { case loading, signedOut, signedIn }
 
     @Published var phase: Phase = .loading
-    @Published var profile: UserProfile?
+    @Published var profile: RiderProfile?
     @Published var activeRoom: RideRoom?
     @Published var errorMessage: ErrorMessage?
-
-    /// A join code captured from a deep link before the user is signed in.
+    @Published var lastSavedStats: RideStats?      // drives the ride-summary screen
     @Published var pendingJoinCode: String?
 
     // Long-lived services
-    let supabase = SupabaseService.shared
-    let auth: AuthService
-    let voice = VoiceService()
+    let supabase = SupabaseManager.shared
+    let auth = AuthService()
+    let rooms = RideRoomService()
+    let voice = VoiceChatService()
     let location = LocationService()
     let audio = AudioSessionManager.shared
+    let music = MusicLinkService()
+    let sos = SOSService()
+    let recording = RideRecordingService()
 
     init() {
-        self.auth = AuthService(supabase: supabase)
+        // Feed location updates into the ride recorder.
+        location.onLocation = { [weak self] loc in self?.recording.ingest(loc) }
     }
 
     // MARK: - Lifecycle
 
-    /// Restore an existing session on launch.
     func bootstrap() async {
         do {
             if let session = try await auth.restoreSession() {
-                self.profile = try await supabase.fetchProfile(userId: session.userId)
-                self.phase = .signedIn
+                profile = try await auth.fetchProfile(userId: session.userId)
+                phase = .signedIn
                 await consumePendingJoinIfPossible()
-            } else {
-                self.phase = .signedOut
-            }
-        } catch {
-            self.phase = .signedOut
-            report(error)
-        }
+            } else { phase = .signedOut }
+        } catch { phase = .signedOut; report(error) }
     }
 
-    func signedIn(profile: UserProfile) async {
+    func signedIn(profile: RiderProfile) async {
         self.profile = profile
-        self.phase = .signedIn
+        phase = .signedIn
         await consumePendingJoinIfPossible()
     }
 
     func signOut() async {
         await leaveActiveRoom()
         try? await auth.signOut()
-        self.profile = nil
-        self.phase = .signedOut
+        profile = nil
+        phase = .signedOut
     }
 
     // MARK: - Rooms
 
-    func createRoom(named name: String) async {
+    func createRoom(name: String, thresholdMiles: Double) async {
         guard let profile else { return }
         do {
-            let room = try await supabase.createRoom(named: name)
+            let room = try await rooms.create(name: name, thresholdMiles: thresholdMiles)
             try await enter(room: room, as: profile)
-        } catch {
-            report(error)
-        }
+        } catch { report(error) }
     }
 
     func joinRoom(code: String) async {
@@ -75,58 +71,51 @@ final class AppState: ObservableObject {
         let cleaned = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !cleaned.isEmpty else { return }
         do {
-            let room = try await supabase.joinRoom(code: cleaned)
+            let room = try await rooms.join(code: cleaned)
             try await enter(room: room, as: profile)
-        } catch {
-            report(error)
-        }
+        } catch { report(error) }
     }
 
-    /// Connect voice + location + realtime for a room and show the riding UI.
-    private func enter(room: RideRoom, as profile: UserProfile) async throws {
-        // 1. Audio session up first so AirPods route is ready before connecting voice.
-        try audio.activateForVoice()
-
-        // 2. Mint a LiveKit token and connect.
-        let token = try await supabase.liveKitToken(roomId: room.id)
+    private func enter(room: RideRoom, as profile: RiderProfile) async throws {
+        try audio.activateForVoice()                                   // AirPods route ready
+        let token = try await fetchVoiceToken(roomId: room.id)
         try await voice.connect(url: token.url, token: token.token, identity: token.identity)
-
-        // 3. Start sharing location into the room.
-        location.start(roomId: room.id, userId: profile.id, supabase: supabase)
-
-        // 4. Subscribe to realtime room state (roster, music, emergency).
-        await supabase.subscribeToRoom(roomId: room.id)
-
-        self.activeRoom = room
+        location.start(roomId: room.id, userId: profile.id)            // background updates on
+        recording.start(roomId: room.id, userId: profile.id)          // auto-record the ride
+        await supabase.subscribe(to: room)                            // roster/location/music/sos/msgs
+        activeRoom = room
     }
 
     func leaveActiveRoom() async {
         guard let room = activeRoom else { return }
+        lastSavedStats = await recording.stopAndSave()                // save the ride
         location.stop()
         await voice.disconnect()
-        await supabase.unsubscribeFromRoom()
+        await supabase.unsubscribe()
         audio.deactivate()
-        try? await supabase.leaveRoom(roomId: room.id)
-        self.activeRoom = nil
+        try? await rooms.leave(roomId: room.id)
+        activeRoom = nil
     }
 
-    /// Host-only: end the ride for everyone.
     func endActiveRoom() async {
         guard let room = activeRoom else { return }
-        try? await supabase.endRoom(roomId: room.id)
+        try? await rooms.end(roomId: room.id)
         await leaveActiveRoom()
+    }
+
+    private func fetchVoiceToken(roomId: UUID) async throws -> LiveKitToken {
+        try await supabase.client.functions.invoke(
+            "livekit-token", options: .init(body: ["roomId": roomId.uuidString])
+        )
     }
 
     // MARK: - Deep links  (ridetalk://join/<CODE>)
 
     func handleDeepLink(_ url: URL) {
         guard url.scheme == AppConfig.deepLinkScheme else { return }
-        // ridetalk://join/ABC123  → host == "join", last path component == code
         let parts = ([url.host] + url.pathComponents).compactMap { $0 }
-        guard let joinIdx = parts.firstIndex(where: { $0.lowercased() == "join" }),
-              joinIdx + 1 < parts.count else { return }
-        let code = parts[joinIdx + 1]
-        pendingJoinCode = code
+        guard let i = parts.firstIndex(where: { $0.lowercased() == "join" }), i + 1 < parts.count else { return }
+        pendingJoinCode = parts[i + 1]
         Task { await consumePendingJoinIfPossible() }
     }
 
@@ -146,7 +135,6 @@ final class AppState: ObservableObject {
     }
 }
 
-/// Identifiable wrapper so we can drive a SwiftUI `.alert(item:)`.
 struct ErrorMessage: Identifiable {
     let id = UUID()
     let text: String

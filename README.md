@@ -1,8 +1,43 @@
-# RideTalk 🛴🎙️
+# RideTalk 🛴🏍️🎙️
 
-> A walkie-talkie style group audio app for scooter riders. Talk hands-free with AirPods, share location, sync music, and stay connected over cellular — not Bluetooth range.
+> **A private voice channel for riders** — talk through your AirPods, keep your music
+> playing, and stay connected with your crew over cellular distance.
 
-RideTalk is an **iPhone-first** app (SwiftUI) backed by **Supabase** (auth, data, realtime) and **LiveKit** (low-latency group voice over WebRTC). A small **Next.js** landing/admin page is included.
+For scooter, e-bike, motorcycle, and UTV crews. **iPhone-first** (SwiftUI), backed by
+**Supabase** (auth/data/realtime) and **LiveKit** (low-latency group voice over WebRTC),
+with **Apple MapKit** for live group location. A small **Next.js** landing/invite page is
+included.
+
+---
+
+## What's in the MVP
+
+| Area | Feature |
+|---|---|
+| **Accounts** | Sign in with Apple · rider profile (name, vehicle type/model) · saved riding groups |
+| **Ride rooms** | Create · join by code or invite link · live roster · host mute/remove · lead-rider mode · separation threshold |
+| **Voice** | Group voice (LiveKit) · **push-to-talk** + **voice-activated** · self-mute · AirPods route detection · ducks local music · background audio |
+| **Music** | Share a Spotify / Apple Music / **YouTube Music** link — each rider plays their own copy. **No illegal rebroadcast.** Full-sync controls scaffolded as a placeholder |
+| **Live location** | All riders on a map · name/photo · direction of travel · speed · battery · signal · last-known when disconnected |
+| **Separation alerts** | "Jake is 1.2 mi behind the group" at a host-set ½ / 1 / 2 mi threshold |
+| **SOS** | One-tap help · shares GPS · priority full-screen alert to the group · fastest-route directions |
+| **Ride leader mode** | Host assigns a lead rider · everyone sees distance-from-lead |
+| **Recording & stats** | Auto-records the ride · distance, duration, avg/max speed · ride summary + history |
+| **Safety alerts** | Low battery · lost signal / reconnecting · stopped-unexpectedly · crash-detection placeholder |
+| **Quick messages** | One-tap "Stopping / Need gas / Slow down / I'm behind / All good" (priority for *Slow down*) |
+
+Clearly-marked **placeholders** for: full music sync, crash/rider-down detection, subgroups
+(front/mid/rear), whisper mode, Apple Watch, BLE mesh, GoPro, CarPlay — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+---
+
+## Music: what's legal
+
+iOS / Apple Music / Spotify **do not allow apps to capture and rebroadcast their protected
+audio**. RideTalk therefore shares **links** — each rider plays their own copy — and ducks
+that local music under voice via the audio session. Full detail:
+[`docs/MUSIC_COMPLIANCE.md`](docs/MUSIC_COMPLIANCE.md).
 
 ---
 
@@ -10,163 +45,122 @@ RideTalk is an **iPhone-first** app (SwiftUI) backed by **Supabase** (auth, data
 
 ```
 RideTalk/
-├── ios/                  # SwiftUI iPhone app (the MVP)
-│   ├── project.yml       # XcodeGen project definition (generates RideTalk.xcodeproj)
-│   ├── RideTalk/         # App source
-│   │   ├── App/          # Entry point, app state, configuration
-│   │   ├── Models/       # Codable domain models (match the DB schema)
-│   │   ├── Services/     # Supabase, Auth, LiveKit voice, Audio, Location, PTT
-│   │   ├── ViewModels/   # Observable view models
-│   │   ├── Views/        # SwiftUI screens (sign-in, home, ride room, profile)
-│   │   └── Resources/    # Info.plist, entitlements, assets
-│   └── README.md
-├── supabase/             # Database schema, RLS policies, edge functions
-│   ├── migrations/       # SQL migrations (run in order)
-│   ├── functions/        # Edge functions (LiveKit token mint)
-│   └── README.md
-├── web/                  # Next.js + Tailwind landing page / admin
-│   └── ...
-└── docs/                 # Product spec, architecture, roadmap, compliance
-    ├── PRODUCT_SPEC.md
-    ├── ARCHITECTURE.md
-    ├── MUSIC_COMPLIANCE.md
-    └── ROADMAP.md
+├── ios/                         # SwiftUI iPhone app (the MVP)
+│   ├── project.yml              # XcodeGen → generates RideTalk.xcodeproj
+│   └── RideTalk/
+│       ├── App/                 RideTalkApp, AppState (coordinator), AppConfig, Secrets
+│       ├── Models/              users, rider_profiles, ride_rooms, room_members,
+│       │                        live_locations, sos_alerts, ride_recordings/stats,
+│       │                        shared_music_links, quick_messages (Codable)
+│       ├── Services/
+│       │   ├── SupabaseManager      client + per-room Realtime state
+│       │   ├── AuthService          Sign in with Apple + rider profile
+│       │   ├── RideRoomService      create/join/leave/end, host controls, lead, threshold
+│       │   ├── VoiceChatService     LiveKit voice + push-to-talk
+│       │   ├── AudioSessionManager  AirPods routing, ducking, background, interruptions
+│       │   ├── LocationService      CoreLocation → live_locations + speed/battery
+│       │   ├── MusicLinkService     shared track links
+│       │   ├── SOSService           raise/resolve emergencies
+│       │   ├── RideRecordingService route + distance/duration/avg/max + history
+│       │   └── PushToTalkController  PTT + VOX
+│       ├── ViewModels/          ActiveRideViewModel
+│       └── Views/               SignIn, Home, CreateRoom, JoinRoom, ActiveRide, Map,
+│                                MusicLink, SOS, RideSummary, RideHistory, Profile + Components
+├── supabase/                    # SQL schema, RLS, RPCs, edge function
+│   ├── migrations/0001_init.sql · 0002_rls.sql · 0003_functions.sql
+│   └── functions/livekit-token/  # mints LiveKit JWTs server-side
+├── web/                         # Next.js + Tailwind landing + /join/[code]
+└── docs/                        # spec, architecture, music compliance, LiveKit setup,
+                                 # MVP checklist, roadmap
 ```
 
 ---
 
-## What the MVP includes
+## Database schema (Supabase)
 
-- ✅ **Sign in with Apple** (via Supabase Auth)
-- ✅ **Create / join a ride room** (room code + invite link / deep link)
-- ✅ **Group voice chat** — low-latency, over cellular/WiFi (LiveKit/WebRTC)
-- ✅ **AirPods support** — proper audio session + route handling
-- ✅ **Push-to-talk** *and* optional **voice-activated** mode
-- ✅ **Background audio** — voice continues while the phone is locked
-- ✅ **Live location sharing** with the group (MapKit)
-- ✅ **Large "riding" interface** — huge buttons, minimal interaction
-- ✅ **Emergency "I need help"** button
-- ✅ **Music sync placeholder** — shared track links + play/pause/seek sync (compliant; see below)
-- ✅ **Audio ducking** — music ducks when someone talks
+Tables (full DDL in [`supabase/migrations`](supabase/migrations)): `users`,
+`rider_profiles`, `ride_rooms`, `room_members`, `live_locations`, `sos_alerts`,
+`ride_recordings`, `ride_stats`, `shared_music_links`, `quick_messages`.
+
+**RLS** on every table — a rider can only read/write data for rooms they belong to; host-only
+fields (mute/remove, lead rider, threshold, end ride) are gated by `is_room_host()`.
 
 ---
 
-## Music: what's legal vs. what we built
+## Main screens
 
-iOS, Apple Music, and Spotify **do not allow apps to capture and rebroadcast their
-protected audio output** to other users. RideTalk therefore ships **Sync Mode**, not
-audio rebroadcast:
-
-- The host shares a **track link** (Apple Music / Spotify).
-- Each rider plays **their own copy** in their own music app.
-- RideTalk syncs **play / pause / seek position** so everyone stays roughly in time.
-
-This keeps the app **App Store friendly** and avoids DRM/ToS violations. Full detail in
-[`docs/MUSIC_COMPLIANCE.md`](docs/MUSIC_COMPLIANCE.md).
+1. Onboarding / Sign in with Apple
+2. Home (start/join, saved groups, history)
+3. Create Ride Room
+4. Join Ride Room
+5. **Active Ride** (room name, rider count, lead rider, big PTT, mute, SOS, music, map preview, rider list, connection status)
+6. Map View
+7. Music Link
+8. SOS Alert (priority full-screen)
+9. Ride Summary
+10. Profile / Settings
 
 ---
 
 ## Quick start
 
-### 0. Prerequisites
-
-- macOS with **Xcode 15+**
-- [`XcodeGen`](https://github.com/yonyz/XcodeGen) (`brew install xcodegen`)
-- A [Supabase](https://supabase.com) project (free tier is fine)
-- A [LiveKit Cloud](https://livekit.io) project **or** a self-hosted LiveKit server
-- Node 18+ (for the web landing page, optional)
-
-### 1. Backend — Supabase
-
+### 1. Supabase
 ```bash
 cd supabase
-# Apply schema (either via the Supabase SQL editor or the CLI)
-supabase db push          # if using the Supabase CLI with a linked project
-# or paste migrations/*.sql into the SQL editor in order
-```
-
-Set the LiveKit secrets the token-minting edge function needs:
-
-```bash
-supabase secrets set LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... LIVEKIT_URL=wss://your-project.livekit.cloud
+# apply migrations in order (SQL editor or CLI)
+supabase db push
+# LiveKit secrets for the token function:
+supabase secrets set LIVEKIT_API_KEY=… LIVEKIT_API_SECRET=… LIVEKIT_URL=wss://your.livekit.cloud
 supabase functions deploy livekit-token
 ```
+Enable **Apple** under Authentication → Providers. Details: [`supabase/README.md`](supabase/README.md).
 
-See [`supabase/README.md`](supabase/README.md) for the full walkthrough.
-
-### 2. iOS app
-
+### 2. iOS
 ```bash
 cd ios
-cp RideTalk/App/Secrets.example.xcconfig RideTalk/App/Secrets.xcconfig
-# edit Secrets.xcconfig with your Supabase URL + anon key + LiveKit URL
-xcodegen generate          # creates RideTalk.xcodeproj
+cp RideTalk/App/Secrets.example.xcconfig RideTalk/App/Secrets.xcconfig   # fill in values
+xcodegen generate
 open RideTalk.xcodeproj
 ```
+Pick your Team; confirm **Sign in with Apple** + **Background Modes (Audio, Location)**; run
+on a real device. Details: [`ios/README.md`](ios/README.md) · LiveKit:
+[`docs/LIVEKIT_SETUP.md`](docs/LIVEKIT_SETUP.md).
 
-In Xcode:
-1. Select your **Team** under *Signing & Capabilities*.
-2. Confirm capabilities: **Sign in with Apple**, **Background Modes → Audio**, **Location**.
-3. Run on a real device (microphone + background audio behave best on hardware).
-
-See [`ios/README.md`](ios/README.md) for the dependency list and signing notes.
-
-### 3. Web landing page (optional)
-
+### 3. Web (optional)
 ```bash
-cd web
-npm install
-cp .env.example .env.local   # add your Supabase URL + anon key
-npm run dev                  # http://localhost:3000
+cd web && npm install && cp .env.example .env.local && npm run dev
 ```
 
 ---
 
-## Configuration summary
+## Environment variables
 
-| Where | Key | Purpose |
-|---|---|---|
-| `ios/.../Secrets.xcconfig` | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | App talks to Supabase |
-| `ios/.../Secrets.xcconfig` | `LIVEKIT_URL` | WebSocket URL for voice |
-| Supabase secrets | `LIVEKIT_API_KEY/SECRET` | Edge function mints room tokens |
-| `web/.env.local` | `NEXT_PUBLIC_SUPABASE_URL/ANON_KEY` | Landing/admin |
+| Where | Keys |
+|---|---|
+| `ios/.../Secrets.xcconfig` | `SUPABASE_URL_HOST`, `SUPABASE_ANON_KEY`, `LIVEKIT_URL_HOST` |
+| Supabase function secrets | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_URL` |
+| `web/.env.local` | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_APP_STORE_URL` |
 
-**Never commit `Secrets.xcconfig` or `.env.local`.** They're gitignored.
-
----
-
-## Architecture at a glance
-
-```
- iPhone (SwiftUI)
-   │  Sign in with Apple ──────────────► Supabase Auth
-   │  Rooms / profiles / location ─────► Supabase Postgres (RLS) + Realtime
-   │  "give me a voice token" ─────────► Supabase Edge Function ──► signs LiveKit JWT
-   │  Group voice (WebRTC/Opus) ◄──────► LiveKit SFU (cellular/WiFi, not Bluetooth)
-   │  Music sync events ───────────────► Supabase Realtime broadcast
-```
-
-Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Examples are in `*.example` files; real secrets are gitignored.
 
 ---
 
-## Roadmap
+## Docs
 
-MVP → production path (BLE offline fallback, CarPlay-style safety, push-to-talk
-hardware, group history, moderation, etc.) lives in [`docs/ROADMAP.md`](docs/ROADMAP.md).
-
----
-
-## Legal / safety notes
-
-- RideTalk is a **communication aid**, not a substitute for safe riding. The riding UI is
-  designed to minimize interaction, but riders are responsible for local helmet/earbud laws
-  (some jurisdictions restrict covering both ears while riding).
-- The emergency button calls **your configured contact/flow**, it is **not** a replacement
-  for dialing local emergency services.
-- Music Sync Mode never captures or rebroadcasts protected audio (see compliance doc).
+- [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product spec
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design
+- [`docs/MUSIC_COMPLIANCE.md`](docs/MUSIC_COMPLIANCE.md) — why we don't rebroadcast audio
+- [`docs/LIVEKIT_SETUP.md`](docs/LIVEKIT_SETUP.md) — voice setup notes
+- [`docs/MVP_CHECKLIST.md`](docs/MVP_CHECKLIST.md) — what's done / placeholders
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — MVP → production
 
 ---
+
+## Safety & legal
+
+RideTalk is a **communication aid, not a substitute for safe riding**. The SOS button
+alerts your group — it does **not** contact emergency services. Riders must follow local
+laws on earbuds/helmets. Music Sync never captures or rebroadcasts protected audio.
 
 ## License
 

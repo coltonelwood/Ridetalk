@@ -94,7 +94,7 @@ final class AudioSessionManager: ObservableObject {
     private func handleRouteChange(_ note: Notification) {
         updateRoute()
         // When AirPods are removed (.oldDeviceUnavailable) we keep the session alive but
-        // the route falls back to speaker — VoiceService doesn't need to do anything.
+        // the route falls back to speaker — VoiceChatService doesn't need to do anything.
     }
 
     private func handleInterruption(_ note: Notification) {

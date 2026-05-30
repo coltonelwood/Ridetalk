@@ -1,165 +1,155 @@
 -- RideTalk — Row Level Security
 -- Apply after 0001_init.sql
 --
--- Principle: a rider can only see/touch rooms they belong to. Only the host can
--- mutate host-only fields (mute/remove others, end the room).
+-- Principle: a rider can only read/write data for rooms they belong to. Host-only fields
+-- (mute/remove others, lead rider, threshold, end room) are gated by is_room_host().
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Helper: is the current user a member of a room?
+-- Membership / host helpers
 -- ─────────────────────────────────────────────────────────────────────────────
 create or replace function public.is_room_member(p_room_id uuid)
-returns boolean
-language sql
-security definer set search_path = public
-stable
-as $$
+returns boolean language sql security definer set search_path = public stable as $$
   select exists (
     select 1 from public.room_members m
-    where m.room_id = p_room_id
-      and m.user_id = auth.uid()
-      and m.left_at is null
+    where m.room_id = p_room_id and m.user_id = auth.uid() and m.left_at is null
   );
 $$;
 
--- Helper: is the current user the host of a room?
 create or replace function public.is_room_host(p_room_id uuid)
-returns boolean
-language sql
-security definer set search_path = public
-stable
-as $$
+returns boolean language sql security definer set search_path = public stable as $$
   select exists (
-    select 1 from public.rooms r
-    where r.id = p_room_id
-      and r.host_id = auth.uid()
+    select 1 from public.ride_rooms r
+    where r.id = p_room_id and r.host_id = auth.uid()
   );
 $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- profiles
--- ─────────────────────────────────────────────────────────────────────────────
-alter table public.profiles enable row level security;
+-- ───────────────────────── users ─────────────────────────
+alter table public.users enable row level security;
 
--- Anyone authenticated can read profiles (needed to render rosters/avatars).
-create policy "profiles are readable by authenticated users"
-  on public.profiles for select
-  to authenticated
-  using (true);
+create policy "read own user row" on public.users
+  for select to authenticated using (id = auth.uid());
 
--- You can only insert/update your own profile.
-create policy "users manage their own profile (insert)"
-  on public.profiles for insert
-  to authenticated
-  with check (id = auth.uid());
+-- ───────────────────────── rider_profiles ─────────────────────────
+alter table public.rider_profiles enable row level security;
 
-create policy "users manage their own profile (update)"
-  on public.profiles for update
-  to authenticated
-  using (id = auth.uid())
-  with check (id = auth.uid());
+-- Any authenticated user can read profiles (needed to render rosters/avatars).
+create policy "profiles readable" on public.rider_profiles
+  for select to authenticated using (true);
 
--- ─────────────────────────────────────────────────────────────────────────────
--- rooms
--- ─────────────────────────────────────────────────────────────────────────────
-alter table public.rooms enable row level security;
+create policy "manage own profile (insert)" on public.rider_profiles
+  for insert to authenticated with check (user_id = auth.uid());
 
--- Read a room if you're a member OR you're looking it up to join (by code) —
--- we allow authenticated read of active rooms so the join-by-code flow works.
-create policy "members and joiners can read rooms"
-  on public.rooms for select
-  to authenticated
-  using (
-    status = 'active'
-    or host_id = auth.uid()
-    or public.is_room_member(id)
-  );
+create policy "manage own profile (update)" on public.rider_profiles
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- Any authenticated user can create a room they host.
-create policy "users can create rooms they host"
-  on public.rooms for insert
-  to authenticated
-  with check (host_id = auth.uid());
+-- ───────────────────────── ride_rooms ─────────────────────────
+alter table public.ride_rooms enable row level security;
 
--- Only the host can update (rename / end) the room.
-create policy "host can update their room"
-  on public.rooms for update
-  to authenticated
-  using (host_id = auth.uid())
-  with check (host_id = auth.uid());
+-- Read if you're a member/host, or it's an active room you're looking up to join by code.
+create policy "read rooms" on public.ride_rooms
+  for select to authenticated
+  using (status = 'active' or host_id = auth.uid() or public.is_room_member(id));
 
--- ─────────────────────────────────────────────────────────────────────────────
--- room_members
--- ─────────────────────────────────────────────────────────────────────────────
+create policy "create own room" on public.ride_rooms
+  for insert to authenticated with check (host_id = auth.uid());
+
+create policy "host updates room" on public.ride_rooms
+  for update to authenticated using (host_id = auth.uid()) with check (host_id = auth.uid());
+
+-- ───────────────────────── room_members ─────────────────────────
 alter table public.room_members enable row level security;
 
--- Members can read the roster of their rooms.
-create policy "members can read their room roster"
-  on public.room_members for select
-  to authenticated
+create policy "members read roster" on public.room_members
+  for select to authenticated
   using (public.is_room_member(room_id) or public.is_room_host(room_id));
 
--- A user can add themselves to a room (join). Host rows are created by the
--- create-room flow which also inserts the host as a member.
-create policy "users can join rooms (add themselves)"
-  on public.room_members for insert
-  to authenticated
-  with check (user_id = auth.uid());
+create policy "join self" on public.room_members
+  for insert to authenticated with check (user_id = auth.uid());
 
--- A user can update their own membership (e.g. leave -> set left_at, self-mute).
-create policy "users can update their own membership"
-  on public.room_members for update
-  to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
+create policy "update own membership" on public.room_members
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- The host can update any membership in their room (mute/remove others).
-create policy "host can moderate members"
-  on public.room_members for update
-  to authenticated
-  using (public.is_room_host(room_id))
-  with check (public.is_room_host(room_id));
+create policy "host moderates members" on public.room_members
+  for update to authenticated using (public.is_room_host(room_id)) with check (public.is_room_host(room_id));
 
--- The host can delete members (remove from room).
-create policy "host can remove members"
-  on public.room_members for delete
-  to authenticated
-  using (public.is_room_host(room_id));
+create policy "host removes members" on public.room_members
+  for delete to authenticated using (public.is_room_host(room_id));
 
--- ─────────────────────────────────────────────────────────────────────────────
--- music_states
--- ─────────────────────────────────────────────────────────────────────────────
-alter table public.music_states enable row level security;
+-- ───────────────────────── live_locations ─────────────────────────
+alter table public.live_locations enable row level security;
 
-create policy "members can read music state"
-  on public.music_states for select
-  to authenticated
-  using (public.is_room_member(room_id));
+create policy "members read locations" on public.live_locations
+  for select to authenticated using (public.is_room_member(room_id));
 
--- Host controls the shared track in MVP.
-create policy "host can upsert music state (insert)"
-  on public.music_states for insert
-  to authenticated
-  with check (public.is_room_host(room_id) and updated_by = auth.uid());
+create policy "insert own location" on public.live_locations
+  for insert to authenticated with check (user_id = auth.uid() and public.is_room_member(room_id));
 
-create policy "host can upsert music state (update)"
-  on public.music_states for update
-  to authenticated
-  using (public.is_room_host(room_id))
-  with check (public.is_room_host(room_id));
+create policy "update own location" on public.live_locations
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- ─────────────────────────────────────────────────────────────────────────────
--- ride_locations
--- ─────────────────────────────────────────────────────────────────────────────
-alter table public.ride_locations enable row level security;
+-- ───────────────────────── sos_alerts ─────────────────────────
+alter table public.sos_alerts enable row level security;
 
--- Members can read everyone's pings in their room.
-create policy "members can read room locations"
-  on public.ride_locations for select
-  to authenticated
-  using (public.is_room_member(room_id));
+create policy "members read sos" on public.sos_alerts
+  for select to authenticated using (public.is_room_member(room_id));
 
--- A user can only insert their own pings, and only into rooms they're in.
-create policy "users insert their own locations"
-  on public.ride_locations for insert
-  to authenticated
-  with check (user_id = auth.uid() and public.is_room_member(room_id));
+create policy "create own sos" on public.sos_alerts
+  for insert to authenticated with check (user_id = auth.uid() and public.is_room_member(room_id));
+
+-- Sender or host can resolve an alert.
+create policy "resolve sos" on public.sos_alerts
+  for update to authenticated
+  using (user_id = auth.uid() or public.is_room_host(room_id))
+  with check (user_id = auth.uid() or public.is_room_host(room_id));
+
+-- ───────────────────────── ride_recordings ─────────────────────────
+alter table public.ride_recordings enable row level security;
+
+create policy "read own recordings" on public.ride_recordings
+  for select to authenticated using (user_id = auth.uid());
+
+create policy "insert own recordings" on public.ride_recordings
+  for insert to authenticated with check (user_id = auth.uid());
+
+create policy "update own recordings" on public.ride_recordings
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ───────────────────────── ride_stats ─────────────────────────
+alter table public.ride_stats enable row level security;
+
+create policy "read own stats" on public.ride_stats
+  for select to authenticated
+  using (exists (select 1 from public.ride_recordings r
+                 where r.id = recording_id and r.user_id = auth.uid()));
+
+create policy "upsert own stats (insert)" on public.ride_stats
+  for insert to authenticated
+  with check (exists (select 1 from public.ride_recordings r
+                      where r.id = recording_id and r.user_id = auth.uid()));
+
+create policy "upsert own stats (update)" on public.ride_stats
+  for update to authenticated
+  using (exists (select 1 from public.ride_recordings r
+                 where r.id = recording_id and r.user_id = auth.uid()));
+
+-- ───────────────────────── shared_music_links ─────────────────────────
+alter table public.shared_music_links enable row level security;
+
+create policy "members read music" on public.shared_music_links
+  for select to authenticated using (public.is_room_member(room_id));
+
+-- Any member can share a link (host-only could be enforced client-side / future).
+create policy "members share music" on public.shared_music_links
+  for insert to authenticated with check (user_id = auth.uid() and public.is_room_member(room_id));
+
+create policy "host updates music" on public.shared_music_links
+  for update to authenticated using (public.is_room_host(room_id)) with check (public.is_room_host(room_id));
+
+-- ───────────────────────── quick_messages ─────────────────────────
+alter table public.quick_messages enable row level security;
+
+create policy "members read quick msgs" on public.quick_messages
+  for select to authenticated using (public.is_room_member(room_id));
+
+create policy "members send quick msgs" on public.quick_messages
+  for insert to authenticated with check (user_id = auth.uid() and public.is_room_member(room_id));

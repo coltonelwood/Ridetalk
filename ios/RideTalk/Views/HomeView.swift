@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Home: create a ride, join by code, or open your profile.
+/// Home: start or join a ride, jump back into saved groups, view profile / history.
 struct HomeView: View {
     @EnvironmentObject private var appState: AppState
-    @State private var joinCode = ""
-    @State private var roomName = ""
     @State private var showProfile = false
+    @State private var showHistory = false
+    @State private var savedRooms: [RideRoom] = []
     @State private var isBusy = false
 
     var body: some View {
@@ -14,64 +14,31 @@ struct HomeView: View {
                 Color.rideBackground.ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 24) {
+                    VStack(spacing: 20) {
                         greeting
 
-                        // Start a ride
-                        RideCard {
-                            VStack(alignment: .leading, spacing: 14) {
-                                Label("Start a ride", systemImage: "flag.checkered")
-                                    .font(.title2.bold())
-                                TextField("Ride name (optional)", text: $roomName)
-                                    .textFieldStyle(.roundedBorder)
-                                    .foregroundStyle(.black)
-                                Button {
-                                    create()
-                                } label: {
-                                    Text("Create room")
-                                        .font(.title3.bold())
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                }
-                                .background(Color.rideAccent, in: RoundedRectangle(cornerRadius: 14))
-                                .foregroundStyle(.black)
-                            }
+                        NavigationLink {
+                            CreateRoomView()
+                        } label: {
+                            bigAction("Start a ride", subtitle: "Create a private channel",
+                                      icon: "flag.checkered", tint: .rideAccent, fg: .black)
                         }
 
-                        // Join a ride
-                        RideCard {
-                            VStack(alignment: .leading, spacing: 14) {
-                                Label("Join a ride", systemImage: "person.2.wave.2")
-                                    .font(.title2.bold())
-                                TextField("Enter 6-char code", text: $joinCode)
-                                    .textInputAutocapitalization(.characters)
-                                    .autocorrectionDisabled()
-                                    .textFieldStyle(.roundedBorder)
-                                    .foregroundStyle(.black)
-                                    .font(.system(.title3, design: .monospaced))
-                                Button {
-                                    join()
-                                } label: {
-                                    Text("Join room")
-                                        .font(.title3.bold())
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                }
-                                .background(Color.rideTalk, in: RoundedRectangle(cornerRadius: 14))
-                                .foregroundStyle(.black)
-                                .disabled(joinCode.trimmingCharacters(in: .whitespaces).count < 4)
-                            }
+                        NavigationLink {
+                            JoinRoomView()
+                        } label: {
+                            bigAction("Join a ride", subtitle: "Enter a code or tap an invite",
+                                      icon: "person.2.wave.2.fill", tint: .rideTalk, fg: .black)
                         }
+
+                        if !savedRooms.isEmpty { savedGroups }
 
                         Text("Voice runs over the internet (cellular/WiFi) — not Bluetooth range. Pop in your AirPods before you start.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center).padding(.horizontal)
                     }
                     .padding()
                 }
-                .scrollDismissesKeyboard(.interactively)
 
                 if isBusy {
                     Color.black.opacity(0.4).ignoresSafeArea()
@@ -81,47 +48,86 @@ struct HomeView: View {
             .navigationTitle("RideTalk")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showProfile = true } label: {
-                        Image(systemName: "person.crop.circle")
-                            .font(.title2)
-                    }
+                    Button { showProfile = true } label: { Image(systemName: "person.crop.circle").font(.title2) }
                 }
             }
-            .sheet(isPresented: $showProfile) {
-                ProfileView()
+            .sheet(isPresented: $showProfile) { ProfileView() }
+            .sheet(isPresented: $showHistory) { RideHistoryView() }
+            .sheet(item: $appState.lastSavedStats) { stats in
+                RideSummaryView(stats: stats)
             }
+            .task { await loadSaved() }
         }
     }
 
     private var greeting: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Hey \(appState.profile?.displayName ?? "Rider") 👋")
-                    .font(.title.bold())
-                if let scooter = appState.profile?.scooterType, !scooter.isEmpty {
-                    Text(scooter)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                Text("Hey \(appState.profile?.displayName ?? "Rider") 👋").font(.title.bold())
+                if let v = appState.profile?.vehicleName ?? appState.profile?.vehicleType, !v.isEmpty {
+                    Text(v).font(.subheadline).foregroundStyle(.secondary)
                 }
             }
             Spacer()
         }
     }
 
-    private func create() {
-        isBusy = true
-        Task {
-            await appState.createRoom(named: roomName)
-            isBusy = false
+    private var savedGroups: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Saved groups").font(.headline)
+            ForEach(savedRooms) { room in
+                Button {
+                    rejoin(room)
+                } label: {
+                    HStack {
+                        Image(systemName: "person.3.fill").foregroundStyle(.rideAccent)
+                        VStack(alignment: .leading) {
+                            Text(room.name).font(.headline)
+                            Text("Code \(room.code)")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if room.status == .active {
+                            Text("LIVE").font(.caption2.bold())
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.rideAccent, in: Capsule()).foregroundStyle(.black)
+                        }
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    }
+                    .padding()
+                    .background(Color.rideSurface, in: RoundedRectangle(cornerRadius: 16))
+                }
+                .foregroundStyle(.primary)
+            }
         }
     }
 
-    private func join() {
-        isBusy = true
-        Task {
-            await appState.joinRoom(code: joinCode)
-            isBusy = false
+    private func bigAction(_ title: String, subtitle: String, icon: String, tint: Color, fg: Color) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon).font(.system(size: 34, weight: .bold))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.title2.bold())
+                Text(subtitle).font(.subheadline).opacity(0.8)
+            }
+            Spacer()
         }
+        .foregroundStyle(fg)
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(tint, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func loadSaved() async {
+        savedRooms = (try? await appState.rooms.savedRooms()) ?? []
+    }
+
+    private func rejoin(_ room: RideRoom) {
+        isBusy = true
+        Task { await appState.joinRoom(code: room.code); isBusy = false }
     }
 }

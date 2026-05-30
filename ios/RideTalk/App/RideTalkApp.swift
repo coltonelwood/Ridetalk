@@ -30,8 +30,8 @@ struct RootView: View {
             case .signedOut:
                 SignInView()
             case .signedIn:
-                if let room = appState.activeRoom {
-                    RideRoomView(room: room, app: appState)
+                if appState.activeRoom != nil {
+                    ActiveRideView(app: appState)
                         .transition(.move(edge: .bottom))
                 } else {
                     HomeView()

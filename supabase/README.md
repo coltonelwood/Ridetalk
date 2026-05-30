@@ -57,15 +57,21 @@ bucket should restrict writes to the owning user.
 
 | Table | Purpose |
 |---|---|
-| `profiles` | Rider profile, 1:1 with `auth.users`, auto-created on signup. |
-| `rooms` | Ride rooms: `code`, `host_id`, `status`. |
-| `room_members` | Room ↔ rider, `role` (host/rider), `is_muted`. |
-| `music_states` | Compliant Sync Mode: shared track link + play/pause/position. |
-| `ride_locations` | Throttled location pings (history / late joiners). |
+| `users` | Mirror of `auth.users` so app tables can FK a public table (auto-created on signup). |
+| `rider_profiles` | Rider profile, 1:1 with `users`: name, photo, vehicle type/model, emergency contact. |
+| `ride_rooms` | Ride rooms: `code`, `host_id`, `lead_rider_id`, `status`, `separation_threshold_miles`. |
+| `room_members` | Room ↔ rider: `role` (host/rider), `is_muted`, `subgroup`. |
+| `live_locations` | Latest location per rider (upserted): lat/lng, speed, heading, battery, signal, connected. |
+| `sos_alerts` | Emergency alerts: location, status (active/resolved). |
+| `ride_recordings` | Recorded routes (jsonb point array) per rider. |
+| `ride_stats` | 1:1 summary: distance, duration, avg/max speed. |
+| `shared_music_links` | Compliant link sharing (+ placeholder sync fields). |
+| `quick_messages` | Canned text alerts ("Stopping", "Slow down", …). |
 
-Realtime is enabled on `room_members`, `music_states`, and `ride_locations`. Presence,
-ephemeral location, music, and emergency events also use Realtime **broadcast** channels
-(`room:<roomId>`) without necessarily hitting the DB.
+Realtime is enabled on `room_members`, `live_locations`, `shared_music_links`,
+`sos_alerts`, `quick_messages`, and `ride_rooms`. High-frequency location also uses Realtime
+**broadcast** on channel `room:<roomId>` for instant map updates, while being upserted to
+`live_locations` for "last known".
 
 ## Security notes
 - Every table has RLS; riders only see rooms they belong to.

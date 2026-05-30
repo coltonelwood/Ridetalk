@@ -1,111 +1,117 @@
 import Foundation
+import Combine
 import CoreLocation
 import UIKit
+import Supabase
 
-/// Publishes the rider's location into the active room (throttled) and exposes live
-/// speed/heading for the riding UI. Uses background location updates so the group keeps
-/// seeing you when the screen is locked (requires the location background mode + an
-/// appropriate authorization).
+/// Publishes the rider's location into the active room (broadcast + `live_locations`
+/// upsert for "last known"), exposes live speed/battery, and feeds the ride recorder.
+/// Background updates run **only while a ride is active** (started/stopped explicitly).
 @MainActor
 final class LocationService: NSObject, ObservableObject {
 
     @Published private(set) var current: CLLocation?
     @Published private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
-    /// Current speed in mph for the big riding readout.
     @Published private(set) var speedMph: Double = 0
-    /// Battery 0...1 for the status strip.
     @Published private(set) var batteryLevel: Float = 1.0
+    @Published private(set) var isStoppedUnexpectedly = false
 
+    /// Called on every accepted location update (for ride recording).
+    var onLocation: ((CLLocation) -> Void)?
+
+    private var client: SupabaseClient { SupabaseManager.shared.client }
     private let manager = CLLocationManager()
-    private weak var supabase: SupabaseService?
     private var roomId: UUID?
     private var userId: UUID?
 
-    /// Throttle: don't broadcast more often than this.
     private let minBroadcastInterval: TimeInterval = 3.0
     private var lastBroadcast: Date = .distantPast
+    private var lastMovementAt: Date = Date()
 
     override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.activityType = .otherNavigation
-        manager.distanceFilter = 5 // meters
+        manager.distanceFilter = 5
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryLevel = UIDevice.current.batteryLevel
     }
 
-    func requestAuthorization() {
-        manager.requestWhenInUseAuthorization()
-    }
+    func requestAuthorization() { manager.requestWhenInUseAuthorization() }
 
-    /// Begin sharing location into a room.
-    func start(roomId: UUID, userId: UUID, supabase: SupabaseService) {
+    /// Begin sharing location for a ride (enables background updates).
+    func start(roomId: UUID, userId: UUID) {
         self.roomId = roomId
         self.userId = userId
-        self.supabase = supabase
-
-        if manager.authorizationStatus == .notDetermined {
-            manager.requestWhenInUseAuthorization()
-        }
+        if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
         manager.startUpdatingLocation()
         manager.startUpdatingHeading()
-        // Allow updates to continue in the background while a ride is active.
-        manager.allowsBackgroundLocationUpdates = true
+        manager.allowsBackgroundLocationUpdates = true     // only on while riding
         manager.pausesLocationUpdatesAutomatically = false
+        lastMovementAt = Date()
     }
 
+    /// Stop sharing (disables background updates — important for battery & privacy).
     func stop() {
         manager.stopUpdatingLocation()
         manager.stopUpdatingHeading()
         manager.allowsBackgroundLocationUpdates = false
-        roomId = nil
-        userId = nil
-        supabase = nil
-        speedMph = 0
+        roomId = nil; userId = nil; speedMph = 0
     }
 
-    /// Snapshot for an emergency event.
     func currentCoordinate() -> CLLocationCoordinate2D? { current?.coordinate }
+
+    private var signalQuality: LiveLocation.Signal {
+        // Coarse heuristic from horizontal accuracy.
+        guard let acc = current?.horizontalAccuracy, acc >= 0 else { return .lost }
+        if acc < 25 { return .good }
+        if acc < 100 { return .weak }
+        return .lost
+    }
 }
 
 extension LocationService: CLLocationManagerDelegate {
 
-    nonisolated func locationManager(_ manager: CLLocationManager,
-                                     didUpdateLocations locations: [CLLocation]) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
         Task { @MainActor in
             self.current = loc
             self.speedMph = max(0, loc.speed) * 2.2369362921
             self.batteryLevel = UIDevice.current.batteryLevel
-            await self.broadcastIfNeeded(loc)
+            self.onLocation?(loc)
+
+            // "Stopped unexpectedly" heuristic: no meaningful speed for a while.
+            if loc.speed > 1.0 { self.lastMovementAt = Date(); self.isStoppedUnexpectedly = false }
+            else if Date().timeIntervalSince(self.lastMovementAt) > 120 { self.isStoppedUnexpectedly = true }
+
+            await self.publishIfNeeded(loc)
         }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        Task { @MainActor in
-            self.authorizationStatus = manager.authorizationStatus
-        }
+        Task { @MainActor in self.authorizationStatus = manager.authorizationStatus }
     }
 
     @MainActor
-    private func broadcastIfNeeded(_ loc: CLLocation) async {
-        guard
-            let supabase, let roomId, let userId,
-            Date().timeIntervalSince(lastBroadcast) >= minBroadcastInterval
-        else { return }
+    private func publishIfNeeded(_ loc: CLLocation) async {
+        guard let roomId, let userId,
+              Date().timeIntervalSince(lastBroadcast) >= minBroadcastInterval else { return }
         lastBroadcast = Date()
 
-        let ping = RiderLocation(
-            userId: userId,
-            lat: loc.coordinate.latitude,
-            lng: loc.coordinate.longitude,
+        let live = LiveLocation(
+            roomId: roomId, userId: userId,
+            lat: loc.coordinate.latitude, lng: loc.coordinate.longitude,
             speedMps: loc.speed >= 0 ? loc.speed : nil,
             heading: loc.course >= 0 ? loc.course : nil,
             battery: UIDevice.current.batteryLevel,
-            recordedAt: Date()
+            signal: signalQuality,
+            isConnected: true,
+            updatedAt: Date()
         )
-        _ = roomId // room scoping is enforced by the active channel in SupabaseService
-        await supabase.broadcastLocation(ping, persist: false)
+
+        // Instant fan-out + durable "last known".
+        await SupabaseManager.shared.broadcastLocation(live)
+        _ = try? await client.from("live_locations").upsert(live, onConflict: "room_id,user_id").execute()
     }
 }

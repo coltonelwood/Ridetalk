@@ -1,16 +1,15 @@
 import SwiftUI
 
-/// Rider profile: name, scooter type, sign out. (Photo upload is a Phase 1 feature.)
+/// Profile / Settings: name, vehicle, emergency contact (placeholder), talk defaults, sign out.
 struct ProfileView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
     @State private var displayName = ""
-    @State private var scooterType = ""
+    @State private var vehicleType = VehicleType.scooter.rawValue
+    @State private var vehicleName = ""
+    @State private var emergencyContact = ""
     @State private var isSaving = false
-
-    private let scooterPresets = ["Niu", "Segway/Ninebot", "Apollo", "Dualtron",
-                                  "VanMoof", "Super73", "Onewheel", "Other"]
 
     var body: some View {
         NavigationStack {
@@ -18,51 +17,50 @@ struct ProfileView: View {
                 Section("Rider") {
                     HStack {
                         AvatarView(name: displayName.isEmpty ? "R" : displayName,
-                                   urlString: appState.profile?.avatarURL)
+                                   urlString: appState.profile?.photoURL)
                             .frame(width: 56, height: 56)
-                        TextField("Display name", text: $displayName)
-                            .font(.headline)
+                        TextField("Display name", text: $displayName).font(.headline)
                     }
+                    // Photo upload is a Phase 1 feature (Supabase Storage).
+                    Label("Photo upload coming soon", systemImage: "camera").font(.caption).foregroundStyle(.secondary)
                 }
 
-                Section("Scooter type") {
-                    TextField("e.g. Apollo City Pro", text: $scooterType)
-                    Menu("Pick a preset") {
-                        ForEach(scooterPresets, id: \.self) { preset in
-                            Button(preset) { scooterType = preset }
-                        }
+                Section("Vehicle") {
+                    Picker("Type", selection: $vehicleType) {
+                        ForEach(VehicleType.allCases) { Text($0.rawValue).tag($0.rawValue) }
                     }
-                }
-
-                Section {
-                    Button {
-                        save()
-                    } label: {
-                        HStack {
-                            Text("Save")
-                            if isSaving { Spacer(); ProgressView() }
-                        }
-                    }
-                    .disabled(isSaving)
+                    TextField("Model (e.g. Apollo City Pro)", text: $vehicleName)
                 }
 
                 Section {
-                    Button("Sign out", role: .destructive) {
-                        Task { await appState.signOut(); dismiss() }
-                    }
+                    TextField("Name & phone", text: $emergencyContact)
+                } header: {
+                    Text("Emergency contact")
                 } footer: {
-                    Text("RideTalk is a communication aid, not a substitute for safe riding. The emergency button alerts your group only — call local emergency services directly in a real emergency.")
+                    Text("PLACEHOLDER: stored for a future version that can notify this contact. The SOS button currently alerts your ride group only.")
+                }
+
+                Section {
+                    Button { save() } label: {
+                        HStack { Text("Save"); if isSaving { Spacer(); ProgressView() } }
+                    }.disabled(isSaving)
+                }
+
+                Section {
+                    Button("Sign out", role: .destructive) { Task { await appState.signOut(); dismiss() } }
+                } footer: {
+                    Text("RideTalk is a communication aid, not a substitute for safe riding. The SOS button alerts your group — call local emergency services directly in a real emergency. Check local laws on earbuds while riding.")
                         .font(.caption2)
                 }
             }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
-            }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .onAppear {
                 displayName = appState.profile?.displayName ?? ""
-                scooterType = appState.profile?.scooterType ?? ""
+                vehicleType = appState.profile?.vehicleType ?? VehicleType.scooter.rawValue
+                vehicleName = appState.profile?.vehicleName ?? ""
+                emergencyContact = appState.profile?.emergencyContact ?? ""
             }
         }
     }
@@ -72,17 +70,16 @@ struct ProfileView: View {
         isSaving = true
         Task {
             do {
-                let updated = try await appState.supabase.updateProfile(
-                    userId: id,
-                    ProfileUpdate(displayName: displayName,
-                                  avatarURL: appState.profile?.avatarURL,
-                                  scooterType: scooterType)
-                )
+                let updated = try await appState.auth.updateProfile(userId: id, ProfileUpdate(
+                    displayName: displayName,
+                    photoURL: appState.profile?.photoURL,
+                    vehicleType: vehicleType,
+                    vehicleName: vehicleName,
+                    emergencyContact: emergencyContact
+                ))
                 appState.profile = updated
                 dismiss()
-            } catch {
-                appState.report(error)
-            }
+            } catch { appState.report(error) }
             isSaving = false
         }
     }
