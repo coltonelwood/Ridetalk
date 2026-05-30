@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Base Info.plist. XcodeGen merges the `info.properties` from project.yml on top of this
+  (background modes, usage strings, URL types, Sign in with Apple, etc.). Keeping a base
+  file here lets you open the project even before regenerating.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>location</string>
+	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>RideTalk uses your microphone for hands-free group voice chat while you ride.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>RideTalk shares your live location with riders in your current ride room so the group can stay together.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>RideTalk shares your live location with your ride group while a ride is active, including when the screen is locked.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>RideTalk uses motion data during a ride for possible crash / rider-down detection. This is a best-effort safety aid, not guaranteed emergency detection.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>RideTalk uses Apple Music to play the track your group is listening to, in your own app and account. It never records or rebroadcasts audio.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.ridetalk.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ridetalk</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>spotify</string>
+		<string>music</string>
+	</array>
+</dict>
+</plist>

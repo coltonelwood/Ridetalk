@@ -1,0 +1,116 @@
+name: iOS Build
+
+# One job that tees every stage to ci.log with "::STAGE::" markers, then on failure posts
+# the log tail as a PR comment. Raw Actions logs aren't reachable from the dev environment,
+# so this surfaces the exact failing command + error text into a place that IS readable.
+#
+# Stage markers in the posted log identify which command failed:
+#   ::STAGE:: versions / generate / resolve / build
+#
+# Once CI is green this diagnostic comment step can be removed.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - 'claude/**'
+      - 'main'
+  workflow_dispatch: {}
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write          # PR conversation comments use the Issues API
+  pull-requests: write
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+jobs:
+  build:
+    name: Build (Xcode)
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versions
+        run: |
+          echo "::STAGE:: versions" | tee -a ci.log
+          { sw_vers; xcodebuild -version; echo "xcodegen: $(command -v xcodegen || echo MISSING)"; xcodegen --version || true; } 2>&1 | tee -a ci.log
+
+      - name: Install XcodeGen (if needed)
+        run: |
+          echo "::STAGE:: install-xcodegen" | tee -a ci.log
+          { command -v xcodegen >/dev/null 2>&1 || brew install xcodegen; xcodegen --version; } 2>&1 | tee -a ci.log
+
+      - name: Create Secrets.xcconfig (placeholder)
+        run: |
+          echo "::STAGE:: secrets" | tee -a ci.log
+          cp ios/RideTalk/App/Secrets.example.xcconfig ios/RideTalk/App/Secrets.xcconfig 2>&1 | tee -a ci.log
+          echo "secrets copied" | tee -a ci.log
+
+      - name: Generate Xcode project
+        run: |
+          echo "::STAGE:: generate" | tee -a ci.log
+          ( cd ios && set -o pipefail && xcodegen generate ) 2>&1 | tee -a ci.log
+
+      - name: Resolve Swift packages
+        timeout-minutes: 15
+        run: |
+          echo "::STAGE:: resolve" | tee -a ci.log
+          ( cd ios && set -o pipefail && xcodebuild -resolvePackageDependencies \
+              -project RideTalk.xcodeproj -scheme RideTalk ) 2>&1 | tee -a ci.log
+
+      - name: Build
+        timeout-minutes: 25
+        run: |
+          echo "::STAGE:: build" | tee -a ci.log
+          ( cd ios && set -o pipefail && xcodebuild build \
+              -project RideTalk.xcodeproj \
+              -scheme RideTalk \
+              -destination 'generic/platform=iOS Simulator' \
+              -configuration Debug \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" ) 2>&1 | tee -a ci.log
+
+      - name: Surface failing log as PR comment
+        if: ${{ failure() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let tail = '(no ci.log captured)';
+            try {
+              const log = fs.readFileSync('ci.log', 'utf8');
+              tail = log.length > 8000 ? log.slice(-8000) : log;
+            } catch (e) {}
+            const body = [
+              '🔴 **CI diagnostic** — `ios-build` failed. Tail of `ci.log` (stage markers are `::STAGE::`):',
+              '```',
+              tail,
+              '```'
+            ].join('\n');
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: 1,
+                body
+              });
+              core.info('diagnostic comment posted');
+            } catch (e) {
+              core.setFailed('createComment failed (token likely read-only): ' + e.message);
+            }
+
+      - name: Upload ci.log artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-log
+          path: ci.log
+          if-no-files-found: ignore

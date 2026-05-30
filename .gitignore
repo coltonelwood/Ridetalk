@@ -1,0 +1,45 @@
+# ───────── macOS ─────────
+.DS_Store
+*.swp
+
+# ───────── Xcode / iOS ─────────
+ios/*.xcodeproj
+ios/*.xcworkspace
+!ios/*.xcworkspace/contents.xcworkspacedata
+ios/DerivedData/
+ios/build/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Secrets — never commit
+ios/RideTalk/App/Secrets.xcconfig
+**/Secrets.xcconfig
+
+# ───────── Node / Next.js ─────────
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env*.local
+npm-debug.log*
+yarn-error.log*
+
+# ───────── Supabase ─────────
+supabase/.branches
+supabase/.temp
+.env
+
+# ───────── Misc ─────────
+*.log
+coverage/
