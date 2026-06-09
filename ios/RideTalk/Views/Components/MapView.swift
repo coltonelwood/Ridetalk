@@ -15,6 +15,20 @@ struct MapView: View {
             Map(coordinateRegion: $region, showsUserLocation: true, annotationItems: vm.locations) { loc in
                 MapAnnotation(coordinate: loc.coordinate) { RiderPin(loc: loc, vm: vm) }
             }
+            .overlay {
+                if vm.locations.isEmpty {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text("Waiting for rider locations…").font(.headline)
+                        Text("Pins appear as soon as riders share a fix. Make sure Location is allowed in Settings → RideTalk.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(20)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                    .padding(40)
+                }
+            }
             .ignoresSafeArea(edges: .bottom)
             .navigationTitle("Group Map")
             .navigationBarTitleDisplayMode(.inline)

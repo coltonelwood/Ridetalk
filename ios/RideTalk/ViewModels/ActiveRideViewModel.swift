@@ -79,8 +79,15 @@ final class ActiveRideViewModel: ObservableObject {
     var stoppedUnexpectedly: Bool { app.location.isStoppedUnexpectedly }
 
     // Live recording readouts
+    var isRecordingRide: Bool { app.recording.isRecording }
     var recDistanceMiles: Double { app.recording.liveDistanceMiles }
     var recDurationS: TimeInterval { app.recording.liveDurationS }
+    var recSummary: String {
+        let s = Int(recDurationS)
+        let dur = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+                            : String(format: "%d:%02d", s / 60, s % 60)
+        return String(format: "%.1f mi · %@", recDistanceMiles, dur)
+    }
 
     // MARK: - Map / locations
 
@@ -116,6 +123,14 @@ final class ActiveRideViewModel: ObservableObject {
     /// Host shares a link (starts paused at 0).
     func shareMusic(url: String, title: String?) async {
         guard let me = meId, URL(string: url)?.scheme != nil else { return }
+        if isDemo {
+            app.supabase.music = SharedMusicLink(
+                id: UUID(), roomId: room.id, userId: me, url: url,
+                provider: .detect(from: url),
+                title: (title?.isEmpty == false) ? title : nil,
+                isPlaying: false, positionMs: 0, createdAt: Date(), updatedAt: Date())
+            return
+        }
         do { try await app.music.share(roomId: room.id, userId: me, url: url, title: title) }
         catch { app.report(error) }
     }
@@ -123,18 +138,28 @@ final class ActiveRideViewModel: ObservableObject {
     // Host playback controls (write shared state; followers project from it).
     var canControlMusic: Bool { isHost && (music?.provider.supportsSyncedPlayback ?? false) }
 
+    /// Demo-aware local mutation of the shared music state.
+    private func demoSetPlayback(isPlaying: Bool, positionMs: Int) {
+        guard var m = app.supabase.music else { return }
+        m.isPlaying = isPlaying; m.positionMs = positionMs; m.updatedAt = Date()
+        app.supabase.music = m
+    }
+
     func hostPlay() async {
         guard isHost, let m = music else { return }
+        if isDemo { demoSetPlayback(isPlaying: true, positionMs: m.projectedPositionMs); return }
         do { try await app.music.setPlayback(linkId: m.id, isPlaying: true, positionMs: m.projectedPositionMs) }
         catch { app.report(error) }
     }
     func hostPause() async {
         guard isHost, let m = music else { return }
+        if isDemo { demoSetPlayback(isPlaying: false, positionMs: m.projectedPositionMs); return }
         do { try await app.music.setPlayback(linkId: m.id, isPlaying: false, positionMs: m.projectedPositionMs) }
         catch { app.report(error) }
     }
     func hostRestart() async {
         guard isHost, let m = music else { return }
+        if isDemo { demoSetPlayback(isPlaying: true, positionMs: 0); return }
         do { try await app.music.setPlayback(linkId: m.id, isPlaying: true, positionMs: 0) }
         catch { app.report(error) }
     }
@@ -158,12 +183,16 @@ final class ActiveRideViewModel: ObservableObject {
     private var acknowledgedSOS: Set<UUID> = []
     func dismissSOSScreen(_ alert: SOSAlert) { acknowledgedSOS.insert(alert.id); presentedSOS = nil }
 
+    var isDemo: Bool { app.isDemo }
+
     func raiseSOS() async {
         guard let me = meId else { return }
+        if isDemo { app.supabase.addDemoSOS(kind: .manual); return }
         do { try await app.sos.raise(roomId: room.id, userId: me, coordinate: app.location.currentCoordinate()) }
         catch { app.report(error) }
     }
     func resolveSOS(_ alert: SOSAlert) async {
+        if isDemo { app.supabase.resolveDemoSOS(alert.id); return }
         do { try await app.sos.resolve(alertId: alert.id) } catch { app.report(error) }
     }
     func name(forUserId id: UUID) -> String { members.first { $0.userId == id }?.displayName ?? "Rider" }
@@ -173,6 +202,12 @@ final class ActiveRideViewModel: ObservableObject {
     var quickMessages: [QuickMessage] { app.supabase.quickMessages }
     func sendQuick(_ kind: QuickMessageKind) async {
         guard let me = meId else { return }
+        if isDemo {
+            let msg = QuickMessage(id: UUID(), roomId: room.id, userId: me, kind: kind,
+                                   text: kind.label, isPriority: kind.isPriority, createdAt: Date())
+            app.supabase.quickMessages = [msg] + app.supabase.quickMessages
+            return
+        }
         let insert = QuickMessageInsert(roomId: room.id, userId: me, kind: kind,
                                         text: kind.label, isPriority: kind.isPriority)
         do { _ = try await app.supabase.client.from("quick_messages").insert(insert).execute() }
@@ -183,19 +218,28 @@ final class ActiveRideViewModel: ObservableObject {
 
     func toggleMute(_ m: RoomMember) async {
         guard isHost else { return }
+        if isDemo {
+            if let i = app.supabase.roster.firstIndex(where: { $0.userId == m.userId }) {
+                app.supabase.roster[i].isMuted.toggle()
+            }
+            return
+        }
         do { try await app.rooms.setMuted(roomId: room.id, userId: m.userId, muted: !m.isMuted) }
         catch { app.report(error) }
     }
     func remove(_ m: RoomMember) async {
         guard isHost, m.userId != meId else { return }
+        if isDemo { app.supabase.roster.removeAll { $0.userId == m.userId }; return }
         do { try await app.rooms.remove(roomId: room.id, userId: m.userId) } catch { app.report(error) }
     }
     func makeLead(_ m: RoomMember) async {
         guard isHost else { return }
+        if isDemo { app.supabase.room?.leadRiderId = m.userId; return }
         do { try await app.rooms.setLeadRider(roomId: room.id, userId: m.userId) } catch { app.report(error) }
     }
     func setThreshold(_ miles: Double) async {
         guard isHost else { return }
+        if isDemo { app.supabase.room?.separationThresholdMiles = miles; return }
         do { try await app.rooms.setSeparationThreshold(roomId: room.id, miles: miles) } catch { app.report(error) }
     }
 

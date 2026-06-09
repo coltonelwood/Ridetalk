@@ -20,7 +20,10 @@ struct ActiveRideView: View {
                 StatusStrip(vm: vm)
                 banners
 
-                leadRiderChip
+                HStack {
+                    leadRiderChip
+                    if vm.isRecordingRide { recordingChip }
+                }
 
                 MapPreview(vm: vm)
                     .frame(height: 130)
@@ -160,6 +163,18 @@ struct ActiveRideView: View {
                 }
             }
         }
+    }
+
+    /// Subtle "this ride is being recorded" chip with live distance/duration.
+    private var recordingChip: some View {
+        HStack(spacing: 6) {
+            Circle().fill(Color.rideDanger).frame(width: 7, height: 7)
+            Text(vm.recSummary)
+                .font(.caption.bold().monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Color.rideSurface, in: Capsule())
     }
 
     // MARK: - Controls

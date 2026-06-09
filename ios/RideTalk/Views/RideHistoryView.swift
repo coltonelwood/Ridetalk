@@ -63,6 +63,13 @@ struct RideHistoryView: View {
     }
 
     private func load() async {
+        if appState.isDemo {
+            let pairs = DemoData.sampleRecordings()
+            recordings = pairs.map(\.0)
+            statsById = Dictionary(uniqueKeysWithValues: pairs.map { ($0.0.id, $0.1) })
+            isLoading = false
+            return
+        }
         guard let id = appState.profile?.id else { isLoading = false; return }
         recordings = (try? await appState.recording.history(userId: id)) ?? []
         for rec in recordings {

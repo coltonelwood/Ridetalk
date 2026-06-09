@@ -1,16 +1,20 @@
 import SwiftUI
 import AuthenticationServices
 
-/// Sign in with Apple landing screen.
+/// Sign in with Apple landing screen. Also surfaces a clear "setup required" note when no
+/// backend is configured, and a Demo Mode entry so every screen is reviewable without
+/// real credentials.
 struct SignInView: View {
     @EnvironmentObject private var appState: AppState
     @State private var isWorking = false
+
+    private var backendConfigured: Bool { appState.env.backendConfigured }
 
     var body: some View {
         ZStack {
             Color.rideBackground.ignoresSafeArea()
 
-            VStack(spacing: 28) {
+            VStack(spacing: 24) {
                 Spacer()
 
                 Image(systemName: "antenna.radiowaves.left.and.right")
@@ -28,21 +32,35 @@ struct SignInView: View {
 
                 Spacer()
 
-                SignInWithAppleButton(.signIn) { request in
-                    appState.auth.configureRequest(request)
-                } onCompletion: { result in
-                    handle(result)
-                }
-                .signInWithAppleButtonStyle(.white)
-                .frame(height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .padding(.horizontal, 24)
-                .disabled(isWorking)
-                .overlay {
-                    if isWorking { ProgressView().tint(.black) }
+                if backendConfigured {
+                    SignInWithAppleButton(.signIn) { request in
+                        appState.auth.configureRequest(request)
+                    } onCompletion: { result in
+                        handle(result)
+                    }
+                    .signInWithAppleButtonStyle(.white)
+                    .frame(height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.horizontal, 24)
+                    .disabled(isWorking)
+                    .overlay { if isWorking { ProgressView().tint(.black) } }
+                } else {
+                    setupRequiredCard
                 }
 
-                Text("By continuing you agree to ride responsibly. RideTalk is a communication aid, not a substitute for safe riding.")
+                // Demo Mode — always available so every screen is reviewable.
+                Button {
+                    appState.startDemo()
+                } label: {
+                    Label("Explore in Demo Mode", systemImage: "play.rectangle.on.rectangle")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.rideAccent.opacity(0.6)))
+                }
+                .foregroundStyle(.rideAccent)
+                .padding(.horizontal, 24)
+
+                Text("Demo Mode uses sample data and never sends anything. RideTalk is a communication aid, not a substitute for safe riding.")
                     .font(.footnote)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
@@ -50,6 +68,21 @@ struct SignInView: View {
                     .padding(.bottom, 24)
             }
         }
+    }
+
+    private var setupRequiredCard: some View {
+        VStack(spacing: 8) {
+            Label("Backend not configured", systemImage: "gearshape.2")
+                .font(.headline).foregroundStyle(.yellow)
+            Text("Add your Supabase + LiveKit values to `Secrets.xcconfig` to enable Sign in with Apple. Until then, explore the app in Demo Mode below.")
+                .font(.footnote).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(Color.rideSurface, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.yellow.opacity(0.3)))
+        .padding(.horizontal, 24)
     }
 
     private func handle(_ result: Result<ASAuthorization, Error>) {

@@ -31,7 +31,10 @@ final class AppState: ObservableObject {
     let recording = RideRecordingService()
     let crash = CrashDetectionService()
 
+    let env = AppEnvironment.shared
     private var cancellables: Set<AnyCancellable> = []
+
+    var isDemo: Bool { env.isDemoMode }
 
     init() {
         // Feed location updates into the ride recorder AND the crash detector.
@@ -52,6 +55,15 @@ final class AppState: ObservableObject {
     // MARK: - Lifecycle
 
     func bootstrap() async {
+        // Demo Mode: skip auth/network entirely and sign in with the sample profile.
+        if env.isDemoMode {
+            profile = DemoData.profile
+            phase = .signedIn
+            return
+        }
+        // No backend configured → land on the sign-in screen, which offers Demo Mode and
+        // a clear "setup required" note instead of crashing.
+        guard env.backendConfigured else { phase = .signedOut; return }
         do {
             if let session = try await auth.restoreSession() {
                 profile = try await auth.fetchProfile(userId: session.userId)
@@ -61,6 +73,21 @@ final class AppState: ObservableObject {
         } catch { phase = .signedOut; report(error) }
     }
 
+    /// Enter Demo Mode from the sign-in screen.
+    func startDemo() {
+        env.enableDemo()
+        profile = DemoData.profile
+        phase = .signedIn
+    }
+
+    /// Leave Demo Mode (also signs out).
+    func exitDemo() {
+        env.disableDemo()
+        activeRoom = nil
+        profile = nil
+        phase = .signedOut
+    }
+
     func signedIn(profile: RiderProfile) async {
         self.profile = profile
         phase = .signedIn
@@ -68,6 +95,7 @@ final class AppState: ObservableObject {
     }
 
     func signOut() async {
+        if env.isDemoMode { exitDemo(); return }
         await leaveActiveRoom()
         try? await auth.signOut()
         profile = nil
@@ -78,6 +106,7 @@ final class AppState: ObservableObject {
 
     func createRoom(name: String, thresholdMiles: Double) async {
         guard let profile else { return }
+        if env.isDemoMode { enterDemoRide(); return }
         do {
             let room = try await rooms.create(name: name, thresholdMiles: thresholdMiles)
             try await enter(room: room, as: profile)
@@ -85,16 +114,26 @@ final class AppState: ObservableObject {
     }
 
     func joinRoom(code: String) async {
-        guard let profile else { return }
+        guard profile != nil else { return }
+        if env.isDemoMode { enterDemoRide(); return }
         let cleaned = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !cleaned.isEmpty else { return }
         do {
             let room = try await rooms.join(code: cleaned)
-            try await enter(room: room, as: profile)
+            try await enter(room: room, as: profile!)
         } catch { report(error) }
     }
 
     private func enter(room: RideRoom, as profile: RiderProfile) async throws {
+        // Mic permission first, with a friendly error if it's been denied.
+        switch audio.micPermission {
+        case .denied:
+            throw RideTalkError.micDenied
+        case .undetermined:
+            _ = await audio.requestMicPermission()   // joining still works listen-only if refused
+        case .granted:
+            break
+        }
         try audio.activateForVoice()                                   // AirPods route ready
         let token = try await fetchVoiceToken(roomId: room.id)
         try await voice.connect(url: token.url, token: token.token, identity: token.identity)
@@ -105,23 +144,37 @@ final class AppState: ObservableObject {
         activeRoom = room
     }
 
+    /// Demo Mode "enter ride": seed local sample state, no network/voice. Crash detection
+    /// still starts so the simulate flow works; location starts for the speed readout.
+    private func enterDemoRide() {
+        supabase.loadDemoState()
+        crash.start()
+        location.start(roomId: DemoData.roomId, userId: DemoData.meId)
+        activeRoom = DemoData.room
+    }
+
     func leaveActiveRoom() async {
         guard let room = activeRoom else { return }
         crash.stop()
         musicSync.disableSync()
         riderDownEvent = nil
-        lastSavedStats = await recording.stopAndSave()                // save the ride
         location.stop()
+        audio.deactivate()
+        if env.isDemoMode {
+            supabase.clearDemoState()
+            activeRoom = nil
+            return
+        }
+        lastSavedStats = await recording.stopAndSave()                // save the ride
         await voice.disconnect()
         await supabase.unsubscribe()
-        audio.deactivate()
         try? await rooms.leave(roomId: room.id)
         activeRoom = nil
     }
 
     func endActiveRoom() async {
         guard let room = activeRoom else { return }
-        try? await rooms.end(roomId: room.id)
+        if !env.isDemoMode { try? await rooms.end(roomId: room.id) }
         await leaveActiveRoom()
     }
 
@@ -157,6 +210,11 @@ final class AppState: ObservableObject {
         let event = riderDownEvent
         riderDownEvent = nil
         crash.rearm()
+        // In Demo Mode, surface the alert locally instead of hitting the network.
+        if env.isDemoMode, event?.isDemo == false {
+            supabase.addDemoSOS(kind: .possibleCrash)
+            return
+        }
         guard let room = activeRoom, let me = profile?.id, event?.isDemo == false else { return }
         do {
             try await sos.raise(
@@ -190,7 +248,48 @@ final class AppState: ObservableObject {
         #if DEBUG
         print("❌ \(error)")
         #endif
-        errorMessage = ErrorMessage(text: error.localizedDescription)
+        errorMessage = ErrorMessage(text: Self.friendlyMessage(for: error))
+    }
+
+    /// Map raw SDK/network errors to rider-friendly text. Unknown errors fall back to
+    /// their own description rather than jargon like error codes.
+    static func friendlyMessage(for error: Error) -> String {
+        if let rt = error as? RideTalkError { return rt.errorDescription ?? "Something went wrong." }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return "No internet connection. Check cellular/Wi-Fi and try again."
+            case .timedOut:
+                return "The connection timed out. Weak signal? Try again in a moment."
+            case .cannotFindHost, .cannotConnectToHost:
+                return "Couldn't reach the RideTalk server. Check your connection (or the backend setup) and try again."
+            default:
+                return "Network problem — please try again."
+            }
+        }
+        let msg = error.localizedDescription
+        if msg.localizedCaseInsensitiveContains("room not found") {
+            return "No active ride with that code. Double-check the code with your host."
+        }
+        if msg.localizedCaseInsensitiveContains("not authenticated") || msg.localizedCaseInsensitiveContains("jwt") {
+            return "Your session expired. Please sign in again."
+        }
+        return msg
+    }
+}
+
+/// App-level errors with rider-friendly wording.
+enum RideTalkError: LocalizedError {
+    case micDenied
+    case backendUnconfigured
+
+    var errorDescription: String? {
+        switch self {
+        case .micDenied:
+            return "Microphone access is off, so your crew can't hear you. Enable it in Settings → RideTalk → Microphone, then rejoin."
+        case .backendUnconfigured:
+            return "The backend isn't set up yet. Add Supabase + LiveKit values to Secrets.xcconfig, or use Demo Mode."
+        }
     }
 }
 

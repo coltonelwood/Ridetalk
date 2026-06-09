@@ -5,8 +5,17 @@ struct HomeView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showProfile = false
     @State private var showHistory = false
+    @State private var showPermissions = false
     @State private var savedRooms: [RideRoom] = []
     @State private var isBusy = false
+
+    /// Show the "before you ride" nudge until mic + location are settled.
+    private var needsPermissionSetup: Bool {
+        guard !appState.isDemo else { return false }
+        let micOK = appState.audio.micPermission == .granted
+        let locOK = [.authorizedWhenInUse, .authorizedAlways].contains(appState.location.authorizationStatus)
+        return !(micOK && locOK)
+    }
 
     var body: some View {
         NavigationStack {
@@ -30,6 +39,8 @@ struct HomeView: View {
                             bigAction("Join a ride", subtitle: "Enter a code or tap an invite",
                                       icon: "person.2.wave.2.fill", tint: .rideTalk, fg: .black)
                         }
+
+                        if needsPermissionSetup { permissionsNudge }
 
                         if !savedRooms.isEmpty { savedGroups }
 
@@ -57,6 +68,7 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showProfile) { ProfileView() }
             .sheet(isPresented: $showHistory) { RideHistoryView() }
+            .sheet(isPresented: $showPermissions) { PermissionsView() }
             .sheet(item: $appState.lastSavedStats) { stats in
                 RideSummaryView(stats: stats)
             }
@@ -74,6 +86,25 @@ struct HomeView: View {
             }
             Spacer()
         }
+    }
+
+    private var permissionsNudge: some View {
+        Button { showPermissions = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.shield").font(.title2).foregroundStyle(.yellow)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Before you ride").font(.headline)
+                    Text("Set up microphone & location — takes 10 seconds.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .padding()
+            .background(Color.rideSurface, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(.yellow.opacity(0.3)))
+        }
+        .foregroundStyle(.primary)
     }
 
     private var savedGroups: some View {
@@ -123,6 +154,7 @@ struct HomeView: View {
     }
 
     private func loadSaved() async {
+        if appState.isDemo { savedRooms = [DemoData.room]; return }
         savedRooms = (try? await appState.rooms.savedRooms()) ?? []
     }
 

@@ -10,6 +10,7 @@ struct ProfileView: View {
     @State private var vehicleName = ""
     @State private var emergencyContact = ""
     @State private var isSaving = false
+    @State private var showPermissions = false
 
     var body: some View {
         NavigationStack {
@@ -38,6 +39,16 @@ struct ProfileView: View {
                 }
 
                 Section {
+                    Button { showPermissions = true } label: {
+                        Label("Permissions (mic, location, motion)", systemImage: "checkmark.shield")
+                    }
+                } header: {
+                    Text("Privacy & permissions")
+                } footer: {
+                    Text("See what RideTalk can access, why each permission is needed, and change them any time.")
+                }
+
+                Section {
                     TextField("Name & phone", text: $emergencyContact)
                 } header: {
                     Text("Emergency contact")
@@ -61,6 +72,7 @@ struct ProfileView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .sheet(isPresented: $showPermissions) { PermissionsView() }
             .onAppear {
                 displayName = appState.profile?.displayName ?? ""
                 vehicleType = appState.profile?.vehicleType ?? VehicleType.scooter.rawValue
