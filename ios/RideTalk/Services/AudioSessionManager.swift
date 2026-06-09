@@ -32,6 +32,29 @@ final class AudioSessionManager: ObservableObject {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
+    // MARK: - Microphone permission
+
+    enum MicPermission { case undetermined, granted, denied }
+
+    /// Current mic permission. (Uses `AVAudioSession.recordPermission`, available on our
+    /// iOS 16 deployment target; the iOS 17 `AVAudioApplication` API is a future swap.)
+    var micPermission: MicPermission {
+        switch session.recordPermission {
+        case .granted: return .granted
+        case .denied: return .denied
+        default: return .undetermined
+        }
+    }
+
+    /// Prompt for mic access (no-op if already determined). Returns whether it's granted.
+    func requestMicPermission() async -> Bool {
+        await withCheckedContinuation { cont in
+            session.requestRecordPermission { granted in
+                cont.resume(returning: granted)
+            }
+        }
+    }
+
     // MARK: - Activation
 
     /// Configure + activate the session for group voice. Call before connecting to LiveKit.

@@ -125,6 +125,15 @@ final class AppState: ObservableObject {
     }
 
     private func enter(room: RideRoom, as profile: RiderProfile) async throws {
+        // Mic permission first, with a friendly error if it's been denied.
+        switch audio.micPermission {
+        case .denied:
+            throw RideTalkError.micDenied
+        case .undetermined:
+            _ = await audio.requestMicPermission()   // joining still works listen-only if refused
+        case .granted:
+            break
+        }
         try audio.activateForVoice()                                   // AirPods route ready
         let token = try await fetchVoiceToken(roomId: room.id)
         try await voice.connect(url: token.url, token: token.token, identity: token.identity)
@@ -239,7 +248,48 @@ final class AppState: ObservableObject {
         #if DEBUG
         print("❌ \(error)")
         #endif
-        errorMessage = ErrorMessage(text: error.localizedDescription)
+        errorMessage = ErrorMessage(text: Self.friendlyMessage(for: error))
+    }
+
+    /// Map raw SDK/network errors to rider-friendly text. Unknown errors fall back to
+    /// their own description rather than jargon like error codes.
+    static func friendlyMessage(for error: Error) -> String {
+        if let rt = error as? RideTalkError { return rt.errorDescription ?? "Something went wrong." }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return "No internet connection. Check cellular/Wi-Fi and try again."
+            case .timedOut:
+                return "The connection timed out. Weak signal? Try again in a moment."
+            case .cannotFindHost, .cannotConnectToHost:
+                return "Couldn't reach the RideTalk server. Check your connection (or the backend setup) and try again."
+            default:
+                return "Network problem — please try again."
+            }
+        }
+        let msg = error.localizedDescription
+        if msg.localizedCaseInsensitiveContains("room not found") {
+            return "No active ride with that code. Double-check the code with your host."
+        }
+        if msg.localizedCaseInsensitiveContains("not authenticated") || msg.localizedCaseInsensitiveContains("jwt") {
+            return "Your session expired. Please sign in again."
+        }
+        return msg
+    }
+}
+
+/// App-level errors with rider-friendly wording.
+enum RideTalkError: LocalizedError {
+    case micDenied
+    case backendUnconfigured
+
+    var errorDescription: String? {
+        switch self {
+        case .micDenied:
+            return "Microphone access is off, so your crew can't hear you. Enable it in Settings → RideTalk → Microphone, then rejoin."
+        case .backendUnconfigured:
+            return "The backend isn't set up yet. Add Supabase + LiveKit values to Secrets.xcconfig, or use Demo Mode."
+        }
     }
 }
 

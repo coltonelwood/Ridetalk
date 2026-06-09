@@ -79,8 +79,15 @@ final class ActiveRideViewModel: ObservableObject {
     var stoppedUnexpectedly: Bool { app.location.isStoppedUnexpectedly }
 
     // Live recording readouts
+    var isRecordingRide: Bool { app.recording.isRecording }
     var recDistanceMiles: Double { app.recording.liveDistanceMiles }
     var recDurationS: TimeInterval { app.recording.liveDurationS }
+    var recSummary: String {
+        let s = Int(recDurationS)
+        let dur = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+                            : String(format: "%d:%02d", s / 60, s % 60)
+        return String(format: "%.1f mi · %@", recDistanceMiles, dur)
+    }
 
     // MARK: - Map / locations
 
